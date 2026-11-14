@@ -95,4 +95,18 @@ def test_vector_query_uses_local_read_concern_and_verified_model_filter():
         "embeddingModel": {"$eq": "voyage-3.5-lite"},
         "source": {"$eq": "directory"},
     }
+    memory.retrieve("account field moved", source="directory")
+    assert collection.aggregate.call_count == 2  # refresh matches while reusing the query vector
     embeddings.embed.assert_called_once_with(["account field moved"], input_type="query")
+
+
+@pytest.mark.parametrize(
+    "stage", ["APPROVED", "AWAITING_VERIFICATION", "NO_ACTION", "MANUAL_REVIEW", "VERIFIED"]
+)
+def test_unverified_or_missing_receipt_cannot_become_learned_experience(stage):
+    # In particular, an ACCEPTED response alone is not enough to publish memory.
+    memory = IncidentMemory(None, settings())
+    with pytest.raises(ValueError, match="Only matching independent verification"):
+        memory.learn_verified(
+            {"stage": stage, "verification": {"instruction": {"status": "ACCEPTED"}}}
+        )

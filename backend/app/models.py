@@ -5,6 +5,7 @@ from enum import StrEnum
 from typing import Any, Literal
 from uuid import uuid4
 
+from bson import Decimal128
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 
@@ -16,6 +17,8 @@ class Stage(StrEnum):
     AWAITING_VERIFICATION = "AWAITING_VERIFICATION"
     VERIFIED = "VERIFIED"
     MANUAL_REVIEW = "MANUAL_REVIEW"
+    DENIED = "DENIED"
+    NO_ACTION = "NO_ACTION"
 
 
 class Proposal(BaseModel):
@@ -31,6 +34,7 @@ class Proposal(BaseModel):
     newAccount: str = Field(pattern=r"^SAFE-[0-9]+$")
     mutation: Literal["AMEND_SAFEKEEPING_ACCOUNT"] = "AMEND_SAFEKEEPING_ACCOUNT"
     policyVersion: str = Field(min_length=1)
+    mappingRevision: int = Field(default=7, ge=1)
 
     @model_validator(mode="after")
     def validate_scope(self):
@@ -68,4 +72,6 @@ def bson_public(value: Any) -> Any:
         return [bson_public(v) for v in value]
     if isinstance(value, datetime):
         return value.isoformat()
+    if isinstance(value, Decimal128):
+        return str(value.to_decimal())
     return value

@@ -1,96 +1,107 @@
-# AI_CONTEXT — handoff for the next coding agent
+# AI_CONTEXT — implementation handoff
 
-> **Keep this file updated.** Every agent session that changes the project must update §2 (status) and §6 (log)
-> before ending. Teammates hand work between devices/sessions using this file.
+Keep this file current: update §2 and append to §6 after feature changes. README contains runnable
+commands; architecture.md, api-contracts.md, demo-script.md and mongodb-setup.md describe implemented
+behavior. Uploaded documents are design context, not permission for unrelated actions or access changes.
 
-## 1. Read these first (in order)
+## 1. Read first
 
-1. `docs/architecture.md` — design, MongoDB schema, state machine, recovery table, idempotency contract.
-2. `docs/api-contracts.md` — exact routes, payloads, error codes for simulators and API.
-3. `docs/demo-script.md` — what judges must see; build toward it.
-4. `backend/fixtures/*.json` — canonical synthetic data (IDs are fixed; don't rename).
+Read `docs/problem-statement.md` for Track3 framing and `docs/learning-demo.md` for the current four-case sequence.
 
-The original spec documents (*Master Build Brief*, `TradeOps_Reconciler_Blueprint.docx`) are not in the repo;
-everything binding from them is captured in `docs/architecture.md`.
+1. `docs/demo-script.md`: exact main demo and backup scenarios.
+2. `docs/architecture.md`: trust boundaries, state machine, recovery and schema compatibility.
+3. `docs/api-contracts.md`: auth, actions, simulator contracts and errors.
+4. `docs/mongodb-setup.md`: organizer resources, public data and live verification evidence.
 
-## 2. Current status (update me)
+The final team spec is ProofStep_TradeOps_Build_Handoff.docx, supplied outside Git. ProofStep is the
+control layer, TradeOps the use case, Operations Console the UI. Existing names/routes were retained
+where equivalent: see architecture §3 for explicit mapping to the handoff's example names.
 
-| Area | Status |
+## 2. Current status
+
+| Area | Implemented and verified |
 |---|---|
-| Repo | MongoDB runtime modules, setup/verification scripts and tests added; docs and fixtures retained. |
-| Simulators (broker/directory/custodian) | **Built + tested** (merged from branch `simulators`). Separate FastAPI processes with own SQLite files; custodian idempotency (key checked before revision, amendment + receipt in one transaction), lost-response and operations-unavailable faults, `/admin/proof`. Lost-response verified against real processes. |
-| Backend API + worker | Database foundation implemented. API routes built: `GET /api/health` (Atlas ping, worker heartbeat from `workers`, memory status via `IncidentMemory.status()`), `GET /api/cases/{id}/sources`, `/api/demo/{reset,state,faults,directory-version,custodian-proof}`. **Not built:** case routes (`/cases/{id}`, investigate/approve/execute/timeline), the workflow worker, investigation, approvals, verification. |
-| Atlas Sandbox | Organizer confirmed: Agents in Context Toronto, project 6af899b4fb07f6aa867aa481, Cluster0 (M10/AWS US_WEST_1/MongoDB 9.0.7). Live setup and runtime verification passed; current .env rechecked with both runtime/setup connections successful; targets organizer Cluster0. See mongodb-setup.md. |
-| Development Atlas | SettleFlow 2.0 / tradeops-sandbox (Free/M0, AWS US_EAST_1, MongoDB 8.0.37): verified development environment retained; active runtime now uses organizer Cluster0. |
-| Vector Search | **Verified on organizer Cluster0:** READY index; 9 verified incidents embedded with Voyage voyage-3.5-lite, 1024 dims. Real query returns INC-004 first (score ~0.800), suggesting GET_DIRECTORY_CONTRACT. Unverified INC-010 excluded. |
-| Frontend workbench | **Shell built** (`frontend/`, React 18 + Vite 5 + TS, **http://localhost:3000**). Live source cards, failure lab, proof panel from real API reads. Investigation/approval/timeline show an honest pending state and only poll `/api/cases/{id}` once health reports Atlas connected. |
-| Team Atlas access | Three groupmates added to the organizer Sandbox with Project Data Access Read/Write, verified in the Atlas users list. Personal driver credentials/IP access are separate. |
-| Tests | All 23 tests passed against organizer Cluster0 (15 local + 8 real Atlas), including with credentials exported. Offline settings tests are isolated from shell variables (P2 fixed). Strict runtime verification including real semantic retrieval passed. Full worker/custodian crash recovery not yet built/tested. After merging the app lane: **33 offline tests pass** (`uv run pytest -m 'not atlas'`: 15 DB-lane + 18 simulator/idempotency); live Atlas tests not re-run on Harshi's Mac (no credentials there). |
+| Branch/base | `feat/proofstep-tradeops-demo`, created from current main `a159af1` after frontend/simulator merges. Changes remain uncommitted until user review. |
+| Dataset | Full supplied JSONL imported twice idempotently: 66,693 rows, 13,397 CUSIPs, 12 dates, 383 null prices, 1 blank symbol, zero rejected/duplicate rows. Public SEC data stays external to Git. |
+| Canonical case / work queue | SI-2041..2044 now demonstrate correction→learned follow-up, already accepted and conflicting quantities. Fictional BUY 100 TTE at USD 91.20, TR-2041/SI-2041/P-17, CUSIP F92124100, settlement 2026-09-15. SAFE-100 retired→SAFE-401 active; rev 1 REJECTED→rev 2 ACCEPTED. Market anchor F92124100:2026-09-15 is separate context (1,277 shares; prior close 91.14). |
+| Simulators | Three independent SQLite-backed FastAPI processes. Additive CUSIP/date migration, v1/v2 directory mappingRevision 7, canonical/legacy amendment aliases, atomic receipt + revision, same-key idempotency and real delayed post-commit response. |
+| API | Session login, case start/approve/deny/execute/timeline, honest source/proof reads and auth-guarded failure/reset controls. Exact hash/version/policy checks; server-derived reviewer identity. API never PATCHes custodian. |
+| Worker | Scoped multi-case scan plus verified-learning outbox publication. Separate real process, five-second Atlas lease/one-second heartbeat, persisted investigation phases, live pre-send checks, majority+j intent, hard exit 137 injections, receipt+instruction verification, bounded same-key confirmed-absence retry, manual-review guards. |
+| Directory adaptation | Real mid-run pause then v1→v2; Voyage/Atlas retrieval returns INC-004 (~0.85 in browser); actual guided `/contract` read selects validated v2 adapter. Unknown/conflicting schema stops. |
+| Frontend | Redesigned as a four-step operational workflow on localhost:3000. One active task, business-language checks/actions, exact correction review, confirmation receipt, contextual public data; technical evidence disclosed on demand and scenario controls isolated in a native modal drawer. |
+| Atlas | Organizer Agents in Context Toronto, project 6af899b4fb07f6aa867aa481, existing Cluster0. Runtime/setup scoped users connect. Cases/incidents/policies/workers plus new case_runs + market_fail_observations. Existing vector index READY, 9 verified seed vectors plus dynamically learned verified outcomes. |
+| Reset | Archives/resets all 4 synthetic queue cases, preserving learned experience. Stops local tracked worker; server lease also refuses active workers. Archives previous case run, rotates runId, resets fictional stores, preserves all public data/policy/incident vectors. |
+| Tests | All 66 passed:49 offline +8 Atlas foundation +9 real-process workflow. Both crash windows, stable operation, one receipt/PATCH, denial/stale/wrong hash, mapping revision drift, unknown schema, trade mismatch, no-action, unavailable reads and reset guard. Frontend build/Ruff/format/whitespace passed. |
+| Browser rehearsal | Actual buttons completed start→pause→v2→real retrieval→approval→lost reply + worker exit 137→restart→VERIFIED. One receipt/one PATCH, new worker ID. Rehearsal archived and fresh NEW case prepared. |
+| Team access | Three specified groupmates invited with Project Data Access Read/Write in organizer project. Driver credentials and per-machine IP access remain separate. |
+| Retained development Atlas | SettleFlow2.0 / tradeops-sandbox remains retained; active .env targets organizer Cluster0. Do not delete it as demo cleanup. |
 
-## 3. Non-negotiable rules (from the brief)
+## 3. Invariants
 
-- Synthetic data only. Never connect to real brokers/banks/custodians or production systems.
-- **No Streamlit. Not a dashboard.** One interactive case workbench where the agent workflow is the feature.
-- No LLM in the MVP (team decision). Deterministic investigator + Atlas Vector Search precedents guide read-only tool choice.
-- Nothing mutates the custodian before an exact-hash approval. Only the **worker** calls `PATCH`.
-- Persist `operationId` + payload + stage `AWAITING_VERIFICATION` in Atlas (majority write) **before** sending PATCH.
-- After an ambiguous outcome: never generate a new `operationId`, never blindly retry. Verify via custodian read-back.
-- Unknown directory schema / conflicting evidence / unresolved ambiguity → `MANUAL_REVIEW`.
-- Never fake anything: no hardcoded success in the UI, no fake retrieval results, no UI-only "crash". If a feature
-  is blocked, mark it pending/feature-gated and say so.
-- Runtime uses **PyMongo with the app's own credentials** (`MONGODB_URI`). MCP is for setup only.
-- Secrets only in `.env` (gitignored). Never commit URIs, tokens, keys.
-- Do not drop/delete anything in Atlas except the synthetic demo records; confirm destructive ops with a human.
-- Priority: crash recovery + exactly-once proof (Phases 1–2) **before** Vector Search / directory adaptation (Phase 3).
+- Public SEC observations are historical aggregate context only. Trades/accounts/instructions/receipts
+  are fictional; never connect to a real financial authority. ACCEPTED is not final settlement.
+- Deterministic read-only investigator; no generative LLM in this MVP. Actual Voyage/Atlas retrieval,
+  never a fake search result. Memory suggests tools and cannot authorize a mutation.
+- Only worker calls custodian PATCH, after exact-hash approval, live baseline/mapping/policy checks and
+  acknowledged majority+j intent. Approval and Apply are separate controls.
+- Stable operation and canonical payload survive every restart. Unknown outcome means verify first.
+  Only authoritative 404 + unchanged approved inputs permits a budgeted same-key retry.
+- Receipt and instruction must agree with saved intent on IDs/hash/account/revision/status and stable
+  trade facts. ACK or read-only proof counters alone cannot close the Atlas case.
+- Unknown schema/conflicting evidence→MANUAL_REVIEW; unavailable verification is never treated as absence.
+- CaseStore updates guard caseId/runId/stage/version; reset archives old run and takes worker lease.
+- Runtime uses PyMongo and readWrite user, setup uses dbAdmin-scoped URI. Only vector aggregation uses
+  local read concern; cases/checkpoints retain majority reads and majority+j writes.
+- Secrets only in ignored .env, mode 0600. No keys/URIs/tokens in logs, source, frontend or screenshots.
+- Local demo token + HttpOnly SameSite cookie is not production SSO; no real transfers or settlement.
+- Never drop databases/collections or delete retained clusters as part of reset/testing.
 
-## 4. Database setup and remaining checks
+## 4. Running and verification
 
-Read `docs/mongodb-setup.md` for resources, modules, verification and migration instructions.
-The user initially authorized SettleFlow 2.0, then found the actual organizer invitation and Sandbox project.
-Organizer org **Agents in Context Toronto** is now confirmed in MCP (`69ef9daf03d2ce35c2657862`).
-Reuse its existing **Cluster0**; do not provision an extra paid cluster.
+Repo root, separate terminals:
 
-Database modules and scripts already exist. Setup creates cases/incidents/policies/workers, strict case
-validation, unique case/partial operation/incident/policy indexes, a stage index and a real vector index.
-It preserves live cases/policies and embeds only the 9 verified incidents when a key exists.
-Runtime `tradeops-app` has readWrite on tradeops only; setup `tradeops-setup` adds dbAdmin on that DB only.
-Both are scoped to the selected cluster. Credentials are only in gitignored `.env` (0600).
+```bash
+./scripts/dev.sh       # all HTTP services and frontend; keep running
+./scripts/reset.sh     # stops tracked local worker, archives old synthetic run
+./scripts/worker.sh    # independent process; restart here after deliberate exit 137
+```
 
-Confirmed: local `.env` targets organizer Cluster0 and setup plus runtime verification succeeded there.
+Sign in at http://localhost:3000 with root .env DEMO_REVIEWER_TOKEN value, without surrounding quotes.
+Default fresh run uses Original format, account-check pause ON, and other demo flags OFF. Start
+reconciliation, wait for the account-check pause, open Demo controls and select Updated format, then
+close and Continue reconciliation. Approve correction, open Demo controls to delay confirmation and
+interrupt after submission, close, Apply approved correction, wait for actual exit, restart the worker. Main demo must show VERIFIED with one receipt,
+one PATCH and different saved/resumed worker IDs. See demo-script.md for presenter timings.
 
-Voyage is now verified: local .env key loaded successfully, 9 real document embeddings stored, and
-`verify_atlas.py --require-memory` passed. The query “directory payload moved the account field” returns
-INC-004 first (~0.800), then INC-008 and INC-005. Suggested read-only action: GET_DIRECTORY_CONTRACT.
-Use `ReadConcern("local")` only for the $vectorSearch aggregation: Atlas rejects majority for this stage.
-Case and checkpoint reads/writes retain their majority settings. A regression test enforces this boundary.
+New machine: supply local credentials/IP access then
+`./scripts/setup.sh /absolute/path/market_fail_observations.json`. Python3.12+ (3.13 verified), Node18+;
+venv scripts are primary, uv optional. Use existing organizer Cluster0; no new paid cluster needed.
 
-Remaining application integration:
-1. Wire `CaseStore` and `IncidentMemory` into the API/worker; implement live pre-send checks and
-   independent custodian verification. Retrieval is real, but the worker has not consumed it yet.
-2. On a new machine, provide your own gitignored Voyage/Atlas credentials, run setup and
-   `.venv/bin/python scripts/verify_atlas.py --require-memory`. Reuse stored embeddings when unchanged.
-3. Never present database durability/retrieval checks as the full exactly-once application demonstration.
+```bash
+cd backend
+.venv/bin/pytest -m 'not atlas' -q
+RUN_ATLAS_TESTS=1 .venv/bin/pytest -m 'atlas and not workflow' -q
+RUN_ATLAS_TESTS=1 RUN_WORKFLOW_TESTS=1 .venv/bin/pytest -q
+.venv/bin/python scripts/verify_atlas.py --require-memory
+.venv/bin/ruff check .
+.venv/bin/ruff format --check .
+```
 
-## 5. Build order for the application (Phases)
+Live workflow tests intentionally require both opt-in flags, use unique synthetic case/trade IDs and
+worker keys, free ports, temporary SQLite files, exact cleanup. They never drop the database, change
+canonical SI-2041 or delete public observations. Offline tests clear only temporary exported application
+settings; atlas tests keep real credentials. Root .env loading must remain active in runtime.
+Frontend production check: `cd frontend && npm run build`.
 
-1. **Simulators** (`backend/simulators/`): `common.py` (SQLite helper, fixture loading, admin-token check),
-   `broker.py`, `directory.py`, `custodian.py`, `seed.py`. Each is its own FastAPI app/process (ports 8101/8102/8103),
-   DB file under `backend/simulators/data/`. Custodian PATCH exactly per `architecture.md` §9.
-   → `tests/test_idempotency.py` (TestClient, no Mongo): same key+payload → same receipt; different payload → 409;
-   known key checked before stale revision; lost-response fault still commits; proof counts.
-2. **Backend core**: `app/config.py`, `db.py`, `schema.py`, `seed.py`, `hashing.py`, `models.py`
-   and `services/memory.py` already exist. Reuse `CaseStore.cas_update` (requires run_id), `persist_intent`,
-   `list_resumable`, `heartbeat`, and `IncidentMemory.retrieve`. Remaining application modules:
-   `services/simulator_clients.py`, `directory_adapters.py`, `investigation.py`, `approvals.py`,
-   `workflow.py`, `verification.py`, `worker.py`, `routes/{cases,demo,health}.py`, `main.py`.
-3. **Application tests with Mongo**: current users are restricted to tradeops. Use unique synthetic records
-   and exact cleanup as in `tests/test_atlas.py`; never drop the database. Still build approval endpoint guards,
-   directory contract tests, happy path and full crash recovery with real worker/simulator subprocesses
-   (worker exits 137 → Atlas AWAITING_VERIFICATION → restart → VERIFIED; one receipt/PATCH/revision increment).
-4. **`backend/scripts/setup_atlas.py` and `verify_atlas.py` already implemented** (§4).
-5. **Frontend** (`frontend/`, React 18 + Vite 5 + TS): components listed in `architecture.md` §5; dark navy,
-   teal success, amber/red exceptions; every value from the API; loading/error/manual-review states; keyboard accessible.
-6. **Scripts + README**: `scripts/dev.sh`, `worker.sh`, `kill-worker.sh`, `reset.sh`; runnable instructions.
+## 5. Remaining work and boundaries
+
+The final local demo implementation is complete. Review/commit/push this branch when requested, rehearse
+the three-minute flow and record the one-minute clip. No deployment/publication was requested.
+
+Future production work is outside the demo: real identity provider, external custodian protocol and
+security model, a fenced/distributed scheduler, operational observability and broader validation.
+A generative planner can be added later behind read-only tools; it may never self-approve or bypass
+policy. The real public dataset does not supply per-trade causes or final settlement proof.
 
 ## 6. Session log (append, newest last)
 
@@ -151,3 +162,62 @@ Remaining application integration:
   (they set their own `SIM_ADMIN_TOKEN` because the autouse fixture clears settings env vars). `/api/health` now
   uses `create_client`/`get_database`, the `workers` heartbeat doc and `IncidentMemory.status()` (cached 30 s).
   Install with `cd backend && uv sync --extra dev`. Next: case routes + worker using `CaseStore`.
+
+- **2026-11-14 — Final ProofStep/TradeOps implementation (Codex).** Fetched latest main a159af1 and
+  created feat/proofstep-tradeops-demo. Implemented real API/session reviewer controls, persisted
+  deterministic investigation, exact approval/denial and separate Apply, majority+j intent, single leased
+  worker and real exit 137 crash windows, canonical custodian payload/receipt hashes and full independent
+  read-back recovery. Extended merged simulator/frontend contracts rather than replacing them. Imported
+  all 66,693 SEC EJSON rows twice with no rejection/duplicates; visible TTE CUSIP/date context is explicitly
+  separate from fictional 100-share trade. Added live v1→v2 pause, real Voyage/Atlas INC-004-guided contract
+  read/adapter, mappingRevision guards, manual-review/no-action paths, safe reset/history and run scripts.
+  All 66 tests passed (49 offline, 8 Atlas,9 real-process workflow); both real crash tests recovered with
+  same operation and one receipt/one PATCH. Frontend build, Ruff/format/whitespace passed. Browser buttons
+  reproduced adaptation→approval→lost reply→worker 71012 exit 137→worker 75102 VERIFIED, one receipt/one PATCH,
+  rev 2/SAFE-401; archived rehearsal and reset fresh case. Updated CLAUDE.md, README and every docs file.
+  Local app credentials generated in ignored .env without printing; no commit/push or paid provisioning.
+
+- **2026-11-14 — Operational workflow redesign (Codex).** User requested an action-oriented financial
+  workflow and nontechnical terminology. Defined Track3 problem in problem-statement.md, with precise
+  distinctions from Track1/2. Rebuilt the frontend as one stage-driven case with four-step rail, exception
+  document, reconciliation checklist, account-change approval and custodian confirmation receipt.
+  Added business labels/errors, persistent trade context, collapsed source/audit evidence and native
+  modal Demo controls. Kept all actual HTTP/version/hash/policy/checkpoint semantics; no backend changes.
+  Updated CLAUDE.md, README and all docs. Validation and final rehearsal results recorded below.
+
+  Validation: production TypeScript/Vite build passed; git whitespace check passed. Real redesigned UI
+  rehearsal completed start→pause→Updated format→live retrieval→approval→delayed reply→exit 137→restart→
+  Correction confirmed, with 1 recorded correction/1 submission. New worker used the saved operation.
+  Verified 390px layout (pageWidth=viewportWidth=390), modal controls and Escape/focus return; restored
+  normal viewport. Archived successful run and left a fresh NEW case with service running. Backend
+  contracts unchanged; earlier 66-test suite evidence remains applicable, not presented as a new rerun.
+  Redesign changes are uncommitted on feat/proofstep-tradeops-demo.
+
+- **2026-11-14 — Multi-case workflow and verified learning (Codex).** Added four independent fictional
+  instructions/trades and actionable queue. Follow-up becomes available after first VERIFIED+STORED,
+  enforced by API as well as UI. Added scoped case controls/proof, multi-case worker scan, all-case reset
+  archive and test fixture isolation. Verification atomically records a pending learning outbox; worker
+  revalidates proof, embeds/upserts stable learned incident with source run/receipt/hash provenance.
+  Actual scoped Atlas retrieval changes the next investigation to live-contract-first; no copied
+  account or approval. Added provider backoff and query-vector cache after real Voyage 429 in repeated
+  tests. Added visible independent directory reference and80-vs-800 conflict explanation. Browser
+  NO_ACTION/manual-review paths passed. Automated two-case real retrieval test passed; 55 offline and 8
+  Atlas foundation checks passed. Original 9 workflow regressions passed before final cache/backoff;
+  final learning/availability rehearsal and validation are recorded below. Docs updated throughout.
+
+- **2026-11-14 — Product framing correction (user).** TradeOps is the demonstrated financial software;
+  ProofStep is the architecture/methodology implemented as its control layer to solve Track3. Updated
+  primary UI/browser brand to TradeOps and kept ProofStep in secondary control evidence and docs.
+  This steering is part of the ongoing multi-case/learning implementation, not a replacement task.
+
+  Final validation: 55 offline tests and 8 Atlas foundation tests passed. The final real-process learning
+  test passed in 40s, including verified publication, real scoped retrieval, authenticated publication
+  retry without an extra correction, distinct follow-up approval/operation/receipt, and one submission
+  per case. Earlier 9 workflow regressions also passed; the complete suite was not rerun as one batch
+  after provider-backoff changes. Production TypeScript/Vite, Ruff/format and whitespace checks passed.
+  Browser TradeOps SI-2041 reached VERIFIED+STORED; SI-2042 actually retrieved that incident (score 0.859),
+  read live contract before its first account lookup, and is left AWAITING_APPROVAL with zero submissions.
+  SI-2043 is NO_ACTION and SI-2044 MANUAL_REVIEW, each with zero submissions/corrections. Premature
+  follow-up API start returned 409 EXPERIENCE_NOT_READY. Main brand/browser title TradeOps, ProofStep
+  retained as secondary architecture/control-layer attribution. Final screen saved and left open;
+  current services and worker running. All changes remain uncommitted on feat/proofstep-tradeops-demo.

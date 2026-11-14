@@ -1,90 +1,112 @@
-# TradeOps Reconciler
+# TradeOps Reconciler · ProofStep control architecture
 
-**MongoDB *Agents in Context* Toronto — Track #3: Finish the Job**
+**MongoDB Agents in Context Toronto — Track 3: Finish the Job**
 
-TradeOps Reconciler investigates a rejected securities settlement instruction, verifies the correct receiving
-account across three independent systems, gets a human to approve one exact amendment, submits it, and **proves
-it took effect exactly once — even when the custodian's reply is lost and the worker crashes.**
+TradeOps is the user-facing financial operations application. It implements ProofStep, the durable
+control-layer architecture/methodology that solves Track3. In TradeOps, an operator can investigate a rejected
+settlement instruction, approve one exact account amendment, apply it, and verify the effect after a
+lost reply and a real worker crash. The Operations Console is the React workbench.
 
-> We don't just send the fix. We prove it happened once — even after the agent dies.
+The demo now starts with an actionable four-case work queue; a verified first case teaches the similar follow-up. See [learning demo](docs/learning-demo.md).
 
-All data is synthetic. The broker, account directory and custodian are clearly labeled simulators with their own
-SQLite stores. No real trades, transfers, accounts or settlement.
+The complete local demo is implemented as a four-step operational case workflow: Review exception → Reconcile records → Authorize correction → Confirm completion. Business language leads each action; technical evidence is expandable and presenter faults live in a separate Demo controls drawer. It uses the organizer's MongoDB Atlas Sandbox for checkpoints,
+policy, real Vector Search and **66,693 SEC market observations**. Broker trades, accounts, custodian
+instructions and receipts are fictional, in three independent SQLite-backed simulators. No real
+financial transaction occurs. `ACCEPTED` means accepted for processing, not finally settled.
 
-## The scenario
+## What to show
 
-| System | Record |
+| Track question | Observable behavior |
 |---|---|
-| Broker | `TR-2041` BUY 100 XYZ @ CAD 42.50, portfolio `P-17`, EXECUTED |
-| Custodian | `SI-2041` revision 1, REJECTED, safekeeping account `SAFE-100` |
-| Account directory | `SAFE-100` retired, `SAFE-401` active for `P-17` |
-| Goal | revision 2, `SAFE-401`, ACCEPTED — with exactly one custodian receipt |
+| Did it take effect, or was it only sent? | Worker reads both the custodian receipt and instruction, comparing the saved operation, payload hash, account, revision, status and trade facts before `VERIFIED`. |
+| Can it resume after a crash? | Atlas majority+j intent exists before PATCH. Restarted worker loads the same operation and verifies it. Lost-reply demo finishes with **1 receipt, 1 PATCH, revision 2**. |
+| Can it handle a changed system? | Pause mid-investigation, change directory v1 to v2, continue. Actual Voyage/Atlas retrieval returns a verified incident; the investigator reads `/contract` and uses the validated v2 adapter. |
 
-## How it answers the track
+The investigator is deterministic with allowlisted read-only tools; there is no generative LLM in this
+MVP. Real Voyage embeddings and Atlas Vector Search guide contract discovery. Memory never authorizes a
+write or supplies the authoritative receiving account.
 
-1. **Effective vs. merely sent** — after `PATCH`, the worker reads the custodian's operation record and the
-   instruction and checks ID, revision, account, status and receipt before calling it done.
-2. **Resume without replay** — the approved payload and a stable `operationId` are written to MongoDB Atlas
-   (majority write) *before* sending. A restarted worker resumes at verification with the same ID.
-3. **Adapt to a changed system** — when the directory's response shape changes, Atlas Vector Search retrieves a
-   verified past incident that points the agent to the live `/contract` endpoint and a validated adapter.
-   Unknown shapes go to manual review.
+## Dataset and scenario
 
-## Architecture
+The supplied JSONL file contains public SEC aggregate outstanding delivery failures. It does not identify
+our fictional trade or explain why it failed. Import preserves BSON dates and Decimal128 prices.
+The worker joins by verified **CUSIP + settlement date**, not ticker alone.
 
-React workbench → FastAPI API → MongoDB Atlas (cases, incidents + vector index, policies) ← workflow worker →
-broker / directory / custodian simulators. See [docs/architecture.md](docs/architecture.md) and
-[docs/api-contracts.md](docs/api-contracts.md).
+| Record | Demo value |
+|---|---|
+| Market context | `F92124100:2026-09-15`, TTE, 1,277 market-wide shares, prior close 91.14 |
+| Broker | `TR-2041`, `P-17`, BUY 100 TTE @ USD 91.20, EXECUTED |
+| Custodian | `SI-2041`, revision 1, REJECTED, `SAFE-100` |
+| Directory | `SAFE-100` retired; `SAFE-401` active and authorized; mapping revision 7 |
+| Approved effect | Revision 2, `SAFE-401`, ACCEPTED, one durable receipt |
 
-## Run it locally
+Correcting the simulated instruction never changes the public observation. The large supplied dataset
+stays outside Git. Its source is the [SEC fails-to-deliver dataset](https://www.sec.gov/data-research/sec-markets-data/fails-deliver-data),
+archive `cnsfails202609b.zip`.
 
-Requires Python 3.12 with [uv](https://docs.astral.sh/uv/) and Node 18+.
+## Setup and run
+
+Requires Python 3.12+ (verified with 3.13), Node 18+, Atlas network access, and your own root `.env`.
+On this development Mac the environment is already configured. Preserve its credentials.
 
 ```bash
-cp .env.example .env                       # fill in Atlas, Voyage, SIM_ADMIN_TOKEN, DEMO_REVIEWER_TOKEN
-(cd backend && uv sync --extra dev)
-./scripts/dev.sh                           # simulators on :8101/:8102/:8103, API on :8000
-(cd frontend && npm install && npm run dev)   # workbench on http://localhost:3000
-(cd backend && uv run pytest -m 'not atlas')  # offline tests
+cp .env.example .env  # only on a new machine; fill Atlas runtime/setup URIs and Voyage key
+./scripts/setup.sh /absolute/path/market_fail_observations.json
 ```
 
-## Status
+Setup installs dependencies, generates missing local demo tokens, creates schema/indexes/seeds, reuses
+unchanged incident embeddings, and imports all observations with idempotent `_id` upserts.
 
-MongoDB foundation implemented: scoped PyMongo connections, strict case validation, unique indexes,
-synthetic seeds, atomic stage/version/run updates, majority-written operation intent, recovery scans,
-worker heartbeat helpers and real Atlas Vector Search integration. The organizer Sandbox is **Agents in
-Context Toronto / Cluster0**. See [database setup](docs/mongodb-setup.md) for the current deployment state.
-
-15 local tests and 8 live organizer Atlas tests passed, including checkpoint recovery in a new process.
-Voyage is configured locally: 9 verified incidents have real 1024-dimensional embeddings; strict semantic
-verification returns INC-004 first for the directory-field query. The API, actual workflow worker,
-simulators and UI are still to build; the track behaviors above describe the intended complete product.
-See [docs/AI_CONTEXT.md](docs/AI_CONTEXT.md) for the handoff.
-
-Offline tests are isolated from exported application settings; Atlas tests retain real credentials.
-Both modes have passed with API/database credentials exported in the test process.
-
-## Configuration
-
-Copy `.env.example` to `.env` and fill in values. Never commit `.env`.
-This development machine already has generated credentials in its local `.env`; preserve them.
+Run from the repository root in separate terminals:
 
 ```bash
-python3 -m venv backend/.venv
-backend/.venv/bin/python -m pip install -e 'backend[dev]'
+./scripts/dev.sh       # API :8000, simulators :8101/:8102/:8103, frontend :3000
+./scripts/reset.sh     # run once services are ready; stops the tracked local worker if running
+./scripts/worker.sh    # keep in a separate terminal; restart this after the deliberate crash
+```
+
+Open **http://localhost:3000**. Sign in with `DEMO_REVIEWER_TOKEN` from your local `.env` (copy the value
+without surrounding quotes). Do not put it in frontend source or a recording. Login uses an HttpOnly,
+SameSite cookie and server-configured reviewer identity. It is local demo authentication, not SSO.
+
+Follow [the three-minute demo guide](docs/demo-script.md). Reset requires a stopped worker, archives the
+previous run in Atlas, and preserves market data, incidents and policy.
+
+## Validation
+
+Current checks: **55 offline tests and 8 Atlas foundation tests passed**, plus the live two-case
+learning regression. It verifies actual publication/retrieval, safe publication retry, a fresh follow-up
+approval and separate operation/receipt with one submission per case. The 9 original workflow regressions
+also passed during this extension; the full suite was not rerun as a single batch after backoff changes.
+Frontend production build, Ruff/format and whitespace checks pass. Browser rehearsal verified all four
+outcomes and the learned follow-up (actual score 0.86), leaving it ready for its own approval.
+
+Live embedding tests consume the provider's rate limit. Run them sequentially. Observed 429 responses
+remain explicit pending states with bounded retry; they are never reported as retrieved experience.
+
+```bash
 cd backend
-.venv/bin/python scripts/setup_atlas.py
-.venv/bin/python scripts/verify_atlas.py
 .venv/bin/pytest -m 'not atlas' -q
-RUN_ATLAS_TESTS=1 .venv/bin/pytest -m atlas -q
+RUN_ATLAS_TESTS=1 .venv/bin/pytest -m 'atlas and not workflow' -q
+RUN_ATLAS_TESTS=1 RUN_WORKFLOW_TESTS=1 .venv/bin/pytest -q
+.venv/bin/python scripts/verify_atlas.py --require-memory
+.venv/bin/ruff check .
+.venv/bin/ruff format --check .
 ```
 
-Setup uses the separate `MONGODB_SETUP_URI`; runtime and verification use `MONGODB_URI` (readWrite on
-tradeops only). The current local key and semantic query are verified. On a new machine, add your own
-`VOYAGE_API_KEY`, then run setup and
-`.venv/bin/python scripts/verify_atlas.py --require-memory` to prove the real query returns INC-004 first.
-Do not interpret a passing core database check as completed Vector Search or custodian crash recovery.
+Live workflow tests use unique synthetic IDs, temporary SQLite files and separate ports; cleanup is
+scoped to their own records. They preserve the canonical demo and market collection. Frontend:
+`cd frontend && npm run build`.
 
-## Team / originality
+## Project references
 
-Created during the hackathon by the team. All code and fixtures in this repository are original work from the event.
+- [Problem statement and track positioning](docs/problem-statement.md)
+- [Architecture and recovery rules](docs/architecture.md)
+- [HTTP contracts](docs/api-contracts.md)
+- [Atlas setup, collections and dataset queries](docs/mongodb-setup.md)
+- [Demo steps and presenter narrative](docs/demo-script.md)
+- [Current agent handoff](docs/AI_CONTEXT.md)
+
+This is a local hackathon demo with simulated authorities. Exactly-once business effect depends on the
+custodian's transactional idempotency contract as well as Atlas checkpointing; Atlas alone cannot
+provide that guarantee across a separate external database.

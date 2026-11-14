@@ -146,8 +146,7 @@ class CustodianClient(_Client):
             f"/instructions/{instruction_id}",
             json={
                 "expectedRevision": expected_revision,
-                "newAccount": new_account,
-                "operationId": operation_id,
+                "accountId": new_account,
             },
             headers={"Idempotency-Key": operation_id},
             timeout=timeout or get_settings().custodian_timeout_seconds,

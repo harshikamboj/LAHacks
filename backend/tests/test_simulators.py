@@ -7,12 +7,13 @@ def test_broker_seeded_trade(broker):
     t = broker.get("/trades/TR-2041").json()
     assert (t["side"], t["security"], t["quantity"], t["price"], t["currency"]) == (
         "BUY",
-        "XYZ",
+        "TTE",
         100,
-        "42.50",
-        "CAD",
+        "91.20",
+        "USD",
     )
     assert (t["portfolioId"], t["status"]) == ("P-17", "EXECUTED")
+    assert (t["cusip"], t["settlementDate"]) == ("F92124100", "2026-09-15")
     assert broker.get("/trades/TR-9999").status_code == 404
 
 
@@ -48,3 +49,11 @@ def test_directory_switches_to_v2_and_v3(directory, admin_headers):
 
 def test_directory_contract_switch_requires_admin(directory):
     assert directory.post("/admin/contract", json={"version": 2}).status_code == 401
+
+
+def test_additional_queue_instructions_are_independent(broker, custodian):
+    assert broker.get("/trades/TR-2042").json()["quantity"] == 150
+    accepted = custodian.get("/instructions/SI-2043").json()
+    assert (accepted["status"], accepted["safekeepingAccount"]) == ("ACCEPTED", "SAFE-401")
+    assert broker.get("/trades/TR-2044").json()["quantity"] == 80
+    assert custodian.get("/instructions/SI-2044").json()["quantity"] == 800

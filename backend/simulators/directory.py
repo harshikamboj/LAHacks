@@ -75,6 +75,10 @@ def seed(store: Store) -> None:
                 ),
             )
         _set_contract(store, fixture["defaultContractVersion"])
+        store.conn.execute(
+            "INSERT OR REPLACE INTO settings VALUES ('mapping_revision', ?)",
+            (str(fixture.get("mappingRevision", 7)),),
+        )
         store.conn.execute("COMMIT")
 
 
@@ -114,7 +118,13 @@ def create_app(db_path: Path | None = None) -> FastAPI:
     @app.get("/contract")
     def contract():
         version, changed_at = _contract(store)
-        return {"version": version, **CONTRACTS[version], "changedAt": changed_at, "source": SOURCE}
+        return {
+            "version": version,
+            "contractVersion": version,
+            **CONTRACTS[version],
+            "changedAt": changed_at,
+            "source": SOURCE,
+        }
 
     @app.get("/accounts/{portfolio_id}")
     def get_accounts(portfolio_id: str):
@@ -134,6 +144,8 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         acct = active[0]["account_id"]
         version, _ = _contract(store)
         as_of = utc_now()
+        revision_row = store.query_one("SELECT value FROM settings WHERE key = 'mapping_revision'")
+        mapping_revision = int(revision_row["value"]) if revision_row else 7
         if version == 1:
             return {
                 "portfolioId": portfolio_id,
@@ -142,6 +154,7 @@ def create_app(db_path: Path | None = None) -> FastAPI:
                 "retiredAccounts": [r["account_id"] for r in retired],
                 "asOf": as_of,
                 "source": SOURCE,
+                "mappingRevision": mapping_revision,
             }
         if version == 2:
             return {
@@ -154,6 +167,7 @@ def create_app(db_path: Path | None = None) -> FastAPI:
                 ],
                 "asOf": as_of,
                 "source": SOURCE,
+                "mappingRevision": mapping_revision,
             }
         return {
             "schemaVersion": 3,
@@ -161,6 +175,7 @@ def create_app(db_path: Path | None = None) -> FastAPI:
             "routing": {"custodyLeg": {"acct": acct}},
             "asOf": as_of,
             "source": SOURCE,
+            "mappingRevision": mapping_revision,
         }
 
     @app.get("/account-status/{account_id}")
@@ -187,4 +202,6 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         seed(store)
         return {"reset": True, "contractVersion": _contract(store)[0]}
 
+    app.add_api_route("/directory/contract", contract, methods=["GET"])
+    app.add_api_route("/directory/portfolios/{portfolio_id}", get_accounts, methods=["GET"])
     return app

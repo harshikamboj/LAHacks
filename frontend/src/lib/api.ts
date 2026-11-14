@@ -48,12 +48,12 @@ export interface SourceCard<T> {
 
 export interface Trade {
   tradeId: string; portfolioId: string; side: string; security: string;
-  quantity: number; price: string; currency: string; status: string; executedAt: string;
+  quantity: number; price: string; currency: string; status: string; executedAt: string; cusip: string; settlementDate: string;
 }
 
 export interface Instruction {
   instructionId: string; tradeId: string; portfolioId: string; security: string; quantity: number;
-  revision: number; safekeepingAccount: string; status: string;
+  cusip: string; settlementDate: string; revision: number; safekeepingAccount: string; status: string;
   rejectionReason: string | null; rejectionNote: string | null; latestOperationId: string | null; updatedAt: string;
 }
 
@@ -78,16 +78,23 @@ export interface Proof {
 export interface DemoState {
   faults: { lostResponse: boolean; operationsUnavailable: boolean };
   directoryContractVersion: number;
-  crashWorkerOnUnknown: boolean | null;
+  crashWorkerOnUnknown: boolean | null; pauseDirectoryRead: boolean; directoryPaused: boolean; crashBeforeSend: boolean;
 }
 
 export interface CaseEvent { at: string; type: string; stage?: string; actor?: string; detail?: string }
 
 export interface CaseDoc {
-  caseId: string; stage: string; version: number;
+  caseId: string; portfolioId: string; stage: string; version: number; runId: string; title?: string; scenarioKind?: string; learning?: { status: string; attempts?: number; incidentId?: string; reason?: string }; executionRequested?: boolean;
+  marketContext?: { status: string; observationId: string | null; scope: string; observation: {
+    cusip: string; symbol: string; description: string; settlement_date: string;
+    outstanding_fail_quantity: number; prior_close_price: string | null; source_archive: string;
+  } | null };
+  evidence?: { activeAccount?: AccountStatus; directory?: { activeAccount: string; portfolioId: string; mappingRevision: number } };
   investigation?: {
     steps?: { n: number; tool: string; request: string; ok: boolean; summary: string; guidedBy?: string | null }[];
     precedents?: { query: string; status: string; incidentId?: string; score?: number; reason?: string }[];
+    experienceWaiting?: boolean;
+    reusedExperience?: { incidentId: string; learnedFromCaseId: string; score: number };
     diagnosis?: string;
   };
   proposal?: Record<string, unknown> & { expectedRevision: number; oldAccount: string; newAccount: string; policyVersion: string };
@@ -103,13 +110,21 @@ export interface CaseDoc {
 // ---------- calls ----------
 
 export const api = {
+  cases: () => request<CaseDoc[]>("GET", "/cases"),
+  login: (token: string) => request("POST", "/auth/login", { token }),
+  session: () => request<{ reviewerId: string }>("GET", "/auth/session"),
+  start: (version: number, caseId = CASE_ID) => request("POST", `/cases/${caseId}/start`, { version }),
+  decision: (version: number, proposalHash: string, decision: "APPROVE" | "DENY", caseId = CASE_ID) =>
+    request("POST", `/cases/${caseId}/decision`, { version, proposalHash, decision }),
+  execute: (version: number, caseId = CASE_ID) => request("POST", `/cases/${caseId}/execute`, { version }),
+  retryLearning: (version: number, caseId = CASE_ID) => request("POST", `/cases/${caseId}/learning/retry`, {version}),
   health: () => request<Health>("GET", "/health"),
-  sources: () => request<Sources>("GET", `/cases/${CASE_ID}/sources`),
-  caseDoc: () => request<CaseDoc>("GET", `/cases/${CASE_ID}`),
-  proof: () => request<Proof>("GET", "/demo/custodian-proof"),
-  demoState: () => request<DemoState>("GET", "/demo/state"),
-  setFaults: (f: Partial<{ lostResponse: boolean; operationsUnavailable: boolean; crashWorkerOnUnknown: boolean }>) =>
-    request("POST", "/demo/faults", f),
+  sources: (caseId = CASE_ID) => request<Sources>("GET", `/cases/${caseId}/sources`),
+  caseDoc: (caseId = CASE_ID) => request<CaseDoc>("GET", `/cases/${caseId}`),
+  proof: (caseId = CASE_ID) => request<Proof>("GET", `/demo/custodian-proof?caseId=${caseId}`),
+  demoState: (caseId = CASE_ID) => request<DemoState>("GET", `/demo/state?caseId=${caseId}`),
+  setFaults: (f: Partial<{ lostResponse: boolean; operationsUnavailable: boolean; crashWorkerOnUnknown: boolean; pauseDirectoryRead: boolean; crashBeforeSend: boolean }>, caseId = CASE_ID) =>
+    request("POST", "/demo/faults", {...f, caseId}),
   setDirectoryVersion: (version: 1 | 2 | 3) => request("POST", "/demo/directory-version", { version }),
   reset: () => request("POST", "/demo/reset", { confirm: "RESET" }),
 };

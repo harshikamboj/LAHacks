@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI
 
-from simulators.common import Store, data_dir, error, load_fixture, require_admin
+from simulators.common import Store, data_dir, ensure_columns, error, load_fixture, require_admin
 
 SOURCE = "SIMULATED_BROKER"
 
@@ -35,7 +35,7 @@ def seed(store: Store) -> None:
         store.conn.execute("DELETE FROM trades")
         for t in load_fixture("trades.json"):
             store.conn.execute(
-                "INSERT INTO trades VALUES (?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO trades VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     t["tradeId"],
                     t["portfolioId"],
@@ -46,6 +46,8 @@ def seed(store: Store) -> None:
                     t["currency"],
                     t["status"],
                     t["executedAt"],
+                    t["cusip"],
+                    t["settlementDate"],
                 ),
             )
         store.conn.execute("COMMIT")
@@ -54,6 +56,7 @@ def seed(store: Store) -> None:
 def create_app(db_path: Path | None = None) -> FastAPI:
     store = Store(db_path or data_dir() / "broker.db")
     store.script(SCHEMA)
+    ensure_columns(store, "trades", ("cusip", "settlement_date"))
     if store.query_one("SELECT COUNT(*) AS n FROM trades")["n"] == 0:
         seed(store)
 
@@ -80,6 +83,9 @@ def create_app(db_path: Path | None = None) -> FastAPI:
             "status": row["status"],
             "executedAt": row["executed_at"],
             "source": SOURCE,
+            "cusip": row["cusip"],
+            "symbol": row["security"],
+            "settlementDate": row["settlement_date"],
         }
 
     @app.post("/admin/reset", dependencies=[Depends(require_admin)])
@@ -87,4 +93,5 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         seed(store)
         return {"reset": True}
 
+    app.add_api_route("/broker/trades/{trade_id}", get_trade, methods=["GET"])
     return app

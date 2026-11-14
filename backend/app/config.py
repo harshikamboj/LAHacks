@@ -29,6 +29,15 @@ class Settings(BaseSettings):
     demo_reviewer_id: str = "demo-reviewer"
     demo_reviewer_token: SecretStr = SecretStr("")
     demo_case_id: str = "SI-2041"
+    demo_trade_id: str = "TR-2041"
+    market_data_file: str = ""
+    worker_offline_seconds: float = 5.0
+
+    @property
+    def worker_record_id(self) -> str:
+        return (
+            "workflow-worker" if self.demo_case_id == "SI-2041" else f"worker-{self.demo_case_id}"
+        )
 
     # Simulated external systems (app lane). Each is its own process with its own SQLite file.
     broker_url: str = "http://127.0.0.1:8101"

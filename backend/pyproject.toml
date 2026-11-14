@@ -26,7 +26,7 @@ packages = ["app", "simulators"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-markers = ["atlas: opt-in tests using real Atlas and uniquely identified synthetic test records"]
+markers = ["atlas: opt-in tests using real Atlas and uniquely identified synthetic test records", "workflow: real API/simulator/worker subprocess acceptance checks"]
 
 [tool.ruff]
 target-version = "py312"

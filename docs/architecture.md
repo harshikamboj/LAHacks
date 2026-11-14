@@ -1,323 +1,199 @@
-# TradeOps Reconciler — Architecture
+# ProofStep / TradeOps architecture
 
-> Hackathon: MongoDB *Agents in Context* Toronto · Track #3 **Finish the Job**.
-> Primary spec: the team's *Master Build Brief* (summarised here) + `TradeOps_Reconciler_Blueprint.docx`.
-> All data is **synthetic**. No real brokers, banks, custodians, accounts or production systems.
+Implemented for MongoDB Agents in Context Toronto, Track 3 **Finish the Job**, following the team's final
+ProofStep TradeOps Build Handoff. ProofStep is the durable control layer; TradeOps is the use case; the
+Operations Console is the frontend. This document describes actual behavior, including compatibility
+choices that preserve the frontend/simulator contracts merged into main.
 
-Implementation note (2026-11-14): MongoDB config, models, hashing, CaseStore, schema/index setup,
-safe fixture seeding and real Voyage/Vector Search integration are implemented. The actual API, worker,
-simulators and frontend remain planned. Organizer target is **Agents in Context Toronto / Cluster0**;
-see `mongodb-setup.md` for deployment/verification status and `AI_CONTEXT.md` for outstanding work.
+## 1. Scope and data
 
-Voyage/Atlas retrieval is verified on organizer Cluster0: 9 verified incidents embedded with
-voyage-3.5-lite (1024 dims); the live directory-field query returns INC-004 first. Only the $vectorSearch
-aggregation uses local read concern (Atlas requirement); case/checkpoint reads and writes retain majority.
-The worker has not yet been built to consume the retrieved next-check suggestion.
+One fictional rejected settlement instruction, one allowed business mutation: amend its safekeeping
+(receiving) account. Final status is ACCEPTED for processing, not settled. No real assets move.
 
-## 1. Product in one sentence
-
-TradeOps Reconciler investigates a rejected securities settlement instruction, verifies the correct
-receiving account across independent systems, obtains approval for a precise amendment, submits it,
-and **proves it took effect exactly once — even when the custodian's reply is lost and the worker crashes.**
-
-Scope is deliberately narrow: **one** pre-seeded rejected instruction, **one** mutation type
-(amend the safekeeping account on that existing instruction). Final status is *accepted for processing*,
-not settled. No cash or securities move.
-
-## 2. Canonical seeded scenario (use these IDs everywhere)
-
-| Source | Record |
+| Authority | Record |
 |---|---|
-| Broker | `TR-2041`: BUY **100 XYZ** @ **CAD 42.50**, portfolio `P-17`, status `EXECUTED` |
-| Custodian | `SI-2041` → `TR-2041`; revision `1`, status `REJECTED`, safekeeping account `SAFE-100` |
-| Directory | `SAFE-100` RETIRED; `SAFE-401` ACTIVE and authorized for `P-17` |
-| Expected amendment | revision `2`, account `SAFE-401`, status `ACCEPTED` |
-| Guarantee | exactly **one** custodian receipt / revision increment after a lost response + worker restart |
+| Public SEC context in Atlas | `F92124100:2026-09-15`, TTE, 1,277 aggregate outstanding failed shares, Decimal128 prior close 91.14 |
+| Broker SQLite | `TR-2041`, `P-17`, BUY 100 TTE, CUSIP F92124100, USD 91.20, executed 2026-09-14, settlement 2026-09-15 |
+| Custodian SQLite | `SI-2041`, revision 1, REJECTED, INVALID_SAFEKEEPING_ACCOUNT, SAFE-100 |
+| Directory SQLite | SAFE-100 retired; SAFE-401 active/authorized for P-17; mappingRevision 7 |
+| Approved outcome | Revision2, SAFE-401, ACCEPTED; one operation receipt |
 
-Fixtures live in `backend/fixtures/*.json`.
+The supplied JSONL contains 66,693 observations, 13,397 CUSIPs and 12 dates in September 15–30, 2026. Import
+uses Extended JSON parsing, BSON UTC dates, Decimal128 prices, validation and batched `_id` upserts.
+383 null prices and one blank symbol are valid missing values, not invented prices/tickers. The market
+collection has a compound cusip/settlement_date index. The worker joins only after broker/custodian trade
+facts agree, using both CUSIP and settlement date. Market context supplies neither account mapping nor
+root cause and is never changed by a simulated correction.
 
-## 3. Decisions already made
+## 2. Processes and trust boundaries
 
-| Topic | Decision |
-|---|---|
-| LLM | **None for the MVP.** The investigator is deterministic. Its next read-only step is guided by **Atlas Vector Search** over verified past incidents (each incident's `suggestedNextCheck` maps to a read-only tool). An LLM can be added later behind the same tool interface; it may never mutate, approve or bypass policy. |
-| Embeddings | **Voyage AI** `voyage-3.5-lite`, 1024 dims, cosine, `VOYAGE_API_KEY`. Same model for indexing (`input_type=document`) and querying (`input_type=query`). If key or index is missing, retrieval reports `PENDING` with a reason — **never faked**. |
-| Database | MongoDB **Atlas Sandbox** (organizer-provided), accessed at runtime **only via PyMongo** with the app's own credentials (`MONGODB_URI`). MCP is a setup tool, not a runtime dependency. Atlas setup is implemented — see `docs/mongodb-setup.md`. |
-| Backend | Python 3.12, `uv`, FastAPI, Pydantic v2, PyMongo, httpx, pytest. |
-| Simulators | Three **separate FastAPI processes**, each with its **own SQLite file**. Independent authorities; survive worker restarts. |
-| Worker | One separate Python process (`python -m app.worker`) running an explicit state machine. **The only component that calls `PATCH`.** Killable/restartable independently. No queues, no LangGraph. |
-| Frontend | React + Vite + TypeScript, plain CSS. One **case workbench** screen. Polls the API every ~1 s. **No Streamlit, not a dashboard.** |
-| Reviewer auth | Clearly labeled **demo reviewer token** (`X-Reviewer-Token` header vs `DEMO_REVIEWER_TOKEN` env). Not SSO and never presented as such. |
-| Crash injection | Worker hard-exits itself (`os._exit(137)`) on an UNKNOWN outcome when the case's demo flag `crashWorkerOnUnknown` is set — a real process death after the custodian commit and before any outcome is saved. Restart via `scripts/worker.sh`. |
-
-## 4. Processes and ports
-
-```text
-React Case Workbench (3000)  <--REST + 1s polling-->  FastAPI API (8000)
-                                                         |  reads/writes cases, policies (PyMongo)
-                                                         |  live READS of simulators for evidence cards
-                                                         v
-                                                  MongoDB Atlas Sandbox
-                                                   cases · incidents(+vector index) · policies · workers
-                                                         ^
-                                                         |  stage scan, conditional updates, heartbeat
-                                              Workflow Worker (python -m app.worker)
-                                                         |
-                        +--------------------------------+-------------------------------+
-                        v                                v                               v
-                Broker sim (8101)              Directory sim (8102)            Custodian sim (8103)
-                broker.db (SQLite)             directory.db (SQLite)           custodian.db (SQLite)
-                executed trade                 active account, /contract       instruction, receipts,
-                                               V1/V2/unknown shapes            idempotency keys, faults
+```mermaid
+flowchart LR
+  UI[Operations Console :3000] --> API[FastAPI :8000]
+  API --> Atlas[(Atlas tradeops)]
+  API -->|live source and proof reads| Sims[Three simulator APIs]
+  Worker[Separate leased worker] <--> Atlas
+  Worker -->|read-only tools| Sims
+  Worker -->|approved PATCH only| Custodian[Custodian SQLite]
+  Worker --> Voyage[Voyage query embeddings]
+  Custodian --> Receipt[Atomic instruction + receipt]
 ```
 
-| Process | Port | Store | Owns |
-|---|---|---|---|
-| Broker sim | 8101 | `backend/simulators/data/broker.db` | executed trade (read-only) |
-| Directory sim | 8102 | `backend/simulators/data/directory.db` | current safekeeping account, response contract version |
-| Custodian sim | 8103 | `backend/simulators/data/custodian.db` | instruction, revisions, operations/receipts, idempotency, faults |
-| API | 8000 | Atlas | case lifecycle, approval authorization, demo controls |
-| Worker | — | Atlas | investigation, pre-send intent, PATCH, verification, recovery |
-| Frontend | 3000 | — | workbench UI (Vite dev proxy `/api` → 8000) |
+`scripts/dev.sh` starts API :8000, broker :8101, directory :8102, custodian :8103 and Vite :3000. Each simulator has
+its own persistent SQLite file under gitignored `backend/simulators/data/`. `scripts/worker.sh` starts a
+separate killable process. API/browser refreshes do not execute custodian mutations. All HTTP services
+bind to localhost. Runtime uses PyMongo, not MCP.
 
-Trust boundary: the **API never calls custodian `PATCH`**. The API only records approval and an
-`executionRequested` flag; the worker performs the mutation after re-checking policy and live evidence.
+One worker holds `workers._id=workflow-worker` with a five-second lease and one-second heartbeat. It
+checks ownership before intent and dispatch. A second worker refuses to take an active lease. SIGTERM
+releases it; hard exit leaves it to expire. Process IDs and worker instance IDs are distinct per start.
 
-## 5. Repository layout
-
-```text
-LAHacks/
-  README.md  CLAUDE.md  .env.example  .gitignore
-  docs/ architecture.md  api-contracts.md  demo-script.md  AI_CONTEXT.md
-  scripts/ dev.sh (3 sims + API)  worker.sh  kill-worker.sh  reset.sh
-  backend/
-    pyproject.toml
-    app/
-      main.py  config.py  models.py  db.py  schema.py  seed.py  hashing.py  worker.py
-      routes/   cases.py  demo.py  health.py
-      services/ investigation.py  approvals.py  workflow.py  verification.py
-                memory.py  directory_adapters.py  simulator_clients.py
-    simulators/ common.py  broker.py  directory.py  custodian.py  seed.py  data/ (gitignored)
-    fixtures/   trades.json  instructions.json  accounts.json  incidents.json  policies.json
-    scripts/    setup_atlas.py   # collections, validator, indexes, vector index, seed policies+incidents
-    tests/      test_idempotency.py  test_approval_guards.py  test_directory_contract.py
-                test_happy_path.py  test_crash_recovery.py  conftest.py
-  frontend/
-    package.json  vite.config.ts  index.html
-    src/ main.tsx  App.tsx  lib/api.ts  styles.css
-         components/ CaseHeader  SourceCards  InvestigationPanel  ApprovalCard
-                     Timeline  FailureLab  ProofPanel
-```
-
-## 6. MongoDB design
-
-### Collections
+## 3. Atlas documents and compatibility
 
 | Collection | Purpose |
 |---|---|
-| `cases` | one document per case: stage, version, evidence, proposal, approval, operation intent, checkpoint, verification, bounded events |
-| `incidents` | 10 synthetic verified/unverified historical incidents + `embedding` (Vector Search) |
-| `policies` | `settlement-amendment` policy `v1`: reviewers/roles, allowed mutation, retry budget, default directory contract |
-| `workers` | heartbeat doc `{_id: "workflow-worker"}` so the UI can show worker online/offline |
+| `cases` | One active synthetic case per caseId: stage/version/runId, evidence, persisted tool phase, proposal/hash, approval, operation/checkpoint, verification, latest 100 events |
+| `case_runs` | Archive previous active document on reset, unique (caseId,runId) |
+| `incidents` | Ten synthetic learning cases; nine VERIFIED have real Voyage vectors; one unverified excluded |
+| `policies` | Allowed mutation/portfolio, policy version, required role and authorized reviewer identities |
+| `workers` | Scoped lease, heartbeat, current instance/PID and stoppedAt |
+| `market_fail_observations` | All supplied public observations; BSON dates/decimals preserved |
+| `healthcheck` | Harmless connectivity verification collection |
 
-### `cases` document
+The existing schema is retained: handoff `instructionId/demoRunId/intent/timeline` correspond to
+`caseId/runId/operation/events`; API returns those aliases too. `workers` serves the proposed
+worker_heartbeats role. Existing `incident_vector_index` and incident INC-004 implement the handoff's
+example incident_memory/INC-DIR-002. Mutation enum stays `AMEND_SAFEKEEPING_ACCOUNT`. These are naming
+compatibility choices, not missing behaviors. Current-case uniqueness plus archived `(caseId,runId)`
+preserves history without breaking existing UI/routes.
 
-```jsonc
-{
-  "caseId": "SI-2041",              // unique
-  "runId": "r7f3c2a1",              // regenerated on every demo reset; part of proposal hash
-  "synthetic": true,                // reset only ever touches synthetic demo docs
-  "tradeId": "TR-2041",
-  "portfolioId": "P-17",
-  "stage": "AWAITING_VERIFICATION", // enum, see §7
-  "version": 7,                     // +1 on every conditional transition
-  "evidence": {
-    "broker":            { "tradeId": "TR-2041", "status": "EXECUTED", "security": "XYZ", "quantity": 100, "side": "BUY", "fetchedAt": ISODate },
-    "custodianBaseline": { "instructionId": "SI-2041", "revision": 1, "account": "SAFE-100", "status": "REJECTED", "rejectionReason": "...", "fetchedAt": ISODate },
-    "directory":         { "activeAccount": "SAFE-401", "baselineAccountStatus": "RETIRED", "contractVersion": 2, "adapter": "v2", "fetchedAt": ISODate }
-  },
-  "investigation": {
-    "steps": [ { "n": 1, "tool": "get_custodian_instruction", "request": "GET /instructions/SI-2041", "ok": true, "summary": "...", "guidedBy": null, "at": ISODate, "ms": 12 } ],
-    "precedents": [ { "query": "...", "status": "FOUND|PENDING|NONE", "incidentId": "INC-007", "score": 0.83, "suggestedNextCheck": "GET_DIRECTORY_CONTRACT", "reason": "..." } ],
-    "diagnosis": "Instruction rejected because SAFE-100 is retired; directory reports SAFE-401 active for P-17."
-  },
-  "proposal": {
-    "caseId": "SI-2041", "runId": "r7f3c2a1", "instructionId": "SI-2041", "tradeId": "TR-2041", "portfolioId": "P-17",
-    "expectedRevision": 1, "oldAccount": "SAFE-100", "newAccount": "SAFE-401",
-    "mutation": "AMEND_SAFEKEEPING_ACCOUNT", "policyVersion": "v1"
-  },
-  "proposalHash": "sha256:<hex>",   // sha256 of canonical JSON (sorted keys, no spaces) of `proposal`
-  "approval": { "reviewerId": "demo-reviewer", "role": "SETTLEMENT_APPROVER", "approvedAt": ISODate,
-                "approvedProposalHash": "sha256:<hex>", "policyVersion": "v1", "authMethod": "DEMO_TOKEN" },
-  "executionRequested": true,
-  "operation": {
-    "operationId": "OP-SI-2041-<first 8 hex of proposalHash>",  // stable; never regenerated
-    "idempotencyKey": "<same as operationId>",
-    "payload": { "expectedRevision": 1, "newAccount": "SAFE-401", "operationId": "OP-SI-2041-..." },
-    "attemptCount": 1, "maxAttempts": 3, "lastSentAt": ISODate, "lastOutcome": "UNKNOWN|ACK|REJECTED"
-  },
-  "checkpoint": { "stage": "AWAITING_VERIFICATION", "operationId": "OP-SI-2041-...", "savedAt": ISODate,
-                  "savedByWorkerId": "worker-4812-ab12", "writeConcern": "majority" },
-  "verification": { "deferrals": 0, "receiptId": "RCPT-...", "revision": 2, "account": "SAFE-401", "status": "ACCEPTED",
-                    "verifiedAt": ISODate, "resumedByWorkerId": "worker-4907-cd34" },
-  "manualReview": { "code": "UNKNOWN_DIRECTORY_CONTRACT", "detail": "..." },
-  "demo": { "crashWorkerOnUnknown": false },
-  "events": [ { "at": ISODate, "type": "INTENT_PERSISTED", "stage": "AWAITING_VERIFICATION", "actor": "worker:worker-4812-ab12", "detail": "...", "data": {} } ],
-  "createdAt": ISODate, "updatedAt": ISODate
-}
-```
+CaseStore updates match caseId + synthetic + runId + expected stage + version, increment version and
+append one event atomically. Stale updates lose the comparison. Case reads use majority; writes use
+majority+journaled acknowledgement. Strict cases validation and unique operation IDs prevent malformed
+or duplicate active intents. Dates are BSON dates internally; API serialization turns decimals into
+strings to preserve exact price display.
 
-`events` is bounded: every push uses `{$push: {events: {$each: [evt], $slice: -100}}}`. Timestamps are
-real BSON UTC datetimes (`datetime.now(timezone.utc)`).
-
-### Conditional atomic transition (the only way stages change)
-
-```python
-cases.find_one_and_update(
-    {"caseId": case_id, "runId": run_id, "synthetic": True,
-     "stage": from_stage, "version": expected_version},
-    {"$set": {"stage": to_stage, **fields, "updatedAt": now},
-     "$inc": {"version": 1},
-     "$push": {"events": {"$each": [event], "$slice": -100}}},
-    return_document=ReturnDocument.AFTER,
-)  # None  => stale or competing update => API returns 409 / worker skips
-```
-
-The **pre-send intent** write (APPROVED → AWAITING_VERIFICATION) uses
-`cases.with_options(write_concern=WriteConcern("majority", j=True))`. Confirm the Sandbox tier supports it
-(it is a replica set, so it should) and record the result in `AI_CONTEXT.md`.
-
-### Indexes and validation (created by `backend/scripts/setup_atlas.py`, idempotent)
-
-| Collection | Index |
-|---|---|
-| `cases` | `{caseId: 1}` unique |
-| `cases` | `{"operation.operationId": 1}` unique, `partialFilterExpression: {"operation.operationId": {$exists: true}}` |
-| `cases` | `{stage: 1}` (worker startup/resume scan) |
-| `incidents` | `{incidentId: 1}` unique |
-| `policies` | `{policyId: 1}` unique |
-| `incidents` | Atlas Vector Search index `incident_vector_index` (below) |
-
-`$jsonSchema` validator on `cases` (`validationLevel: "strict"`): required `caseId`, `tradeId`, `portfolioId`,
-`stage`, `version`; `stage` enum; `caseId` pattern `^SI-[0-9]+$`; `operation.operationId` pattern `^OP-`.
-
-Vector index definition (`type: "vectorSearch"`):
-
-```json
-{
-  "fields": [
-    { "type": "vector", "path": "embedding", "numDimensions": 1024, "similarity": "cosine" },
-    { "type": "filter", "path": "source" },
-    { "type": "filter", "path": "disposition" },
-    { "type": "filter", "path": "embeddingModel" },
-    { "type": "filter", "path": "synthetic" }
-  ]
-}
-```
-
-Query: `$vectorSearch {index: "incident_vector_index", path: "embedding", queryVector, numCandidates: 50, limit: 3, filter: {disposition: {$eq: "VERIFIED"}, synthetic: {$eq: true}, embeddingModel: {$eq: "voyage-3.5-lite"}}}` then `$project` with `score: {$meta: "vectorSearchScore"}`, excluding `embedding`.
-
-## 7. State machine
+## 4. State machine and investigation
 
 ```text
-NEW ──investigate──> INVESTIGATING ──(evidence consistent)──> AWAITING_APPROVAL ──approve──> APPROVED
-                          │                                         ▲                          │ execute (flag)
-                          │                                         │ approval invalidated     ▼
-                          │                                         └──── (inputs changed) ── pre-send recheck
-                          │                                                                    │ persist intent (majority)
-                          ▼                                                                    ▼
-                    MANUAL_REVIEW  <──── conflicts / unknown schema / budget exhausted ── AWAITING_VERIFICATION ──> VERIFIED
+NEW → INVESTIGATING → AWAITING_APPROVAL → APPROVED → AWAITING_VERIFICATION → VERIFIED
+          ├→ NO_ACTION       └→ DENIED       └→ INVESTIGATING (approval inputs changed)
+          └──────────────────────────────→ MANUAL_REVIEW (conflict/unsupported/unsafe)
 ```
 
-Allowed stages: `NEW, INVESTIGATING, AWAITING_APPROVAL, APPROVED, AWAITING_VERIFICATION, VERIFIED, MANUAL_REVIEW`.
-Approval invalidation sends the case back to `INVESTIGATING` with `proposal`/`approval` cleared, so a fresh
-proposal and a fresh approval are required.
+Investigation persists its phase after each read, so an interruption resumes from a saved phase rather
+than replaying the event history. Order: custodian instruction → broker trade → compare identity facts
+→ attach SEC context → check retired account → optional demo pause → directory account → validate active
+account → proposal. An already-accepted instruction terminates NO_ACTION with zero writes.
 
-### Who moves what
+Identity includes tradeId, portfolio, CUSIP, symbol/security, quantity, side and settlement date. A
+mismatch cannot be explained away using aggregate market data. The account must be ACTIVE, authorized
+and owned by the same portfolio.
 
-| Transition | Actor | Guard |
-|---|---|---|
-| NEW → INVESTIGATING | API `POST /investigate` | stage + version |
-| INVESTIGATING → AWAITING_APPROVAL / MANUAL_REVIEW | worker | investigation result |
-| AWAITING_APPROVAL → APPROVED | API `POST /approve` | demo reviewer token + role from `policies`, body `proposalHash` == recomputed hash == stored hash, policy version, stage + version |
-| APPROVED (+`executionRequested`) | API `POST /execute` | stage + version |
-| APPROVED → AWAITING_VERIFICATION | worker | live pre-send recheck passes; majority write of intent **before** PATCH |
-| APPROVED → INVESTIGATING | worker | pre-send recheck found changed inputs (approval invalidated) |
-| AWAITING_VERIFICATION → VERIFIED / MANUAL_REVIEW | worker | custodian read-back (§8) |
+The deterministic investigator first expects v1 `settlementAccount`. A changed shape triggers a real
+Voyage query and Atlas `$vectorSearch`, filtered to VERIFIED synthetic directory incidents and the
+configured model. The stored retrieval includes actual query, incident IDs/scores and next-check
+suggestions. INC-004 suggests GET_DIRECTORY_CONTRACT, which is recorded as the tool step's guidedBy.
+The live `/contract` must map v1 to settlementAccount or v2 to delivery.safekeepingAccount; only these
+validated adapters are permitted. It then re-reads account data and validates account status independently.
+v3/unknown paths, contradictory fields or conflicting evidence go to MANUAL_REVIEW. A missing retrieval
+service is shown honestly as PENDING; safe contract inspection may still proceed, but the semantic
+retrieval portion of the demo is then incomplete. Only vector aggregation uses local read concern
+because Atlas rejects majority there; it does not weaken case durability.
 
-### Investigation (worker, read-only tools only)
+## 5. Approval and durable dispatch
 
-1. `get_custodian_instruction` — `GET /instructions/SI-2041`. Status `ACCEPTED` → MANUAL_REVIEW `ALREADY_ACCEPTED` (zero writes). Not `REJECTED` → MANUAL_REVIEW.
-2. `get_broker_trade` — `GET /trades/TR-2041`. Compare tradeId, portfolio, security, quantity, side; trade must be `EXECUTED`. Any mismatch → MANUAL_REVIEW `TRADE_MISMATCH`.
-3. `retrieve_precedent` — Vector Search with the live rejection reason/note as query. Logged with incident ID + score, or `PENDING` + reason.
-4. `get_account_status` — `GET /account-status/SAFE-100` must be `RETIRED` (otherwise the rejection is unexplained → MANUAL_REVIEW).
-5. `get_directory_account` — `GET /accounts/P-17`, parsed with the last-known adapter (policy default `v1`).
-   On parse failure: build a symptom string from the live response (missing path, observed keys) →
-   `retrieve_precedent` → if the precedent's `suggestedNextCheck` is `GET_DIRECTORY_CONTRACT`, call it and log
-   `guidedBy: INC-xxx`; if retrieval is pending, call it anyway under the deterministic fallback policy and log *why*.
-6. `get_directory_contract` — `GET /contract`. Known version (1 or 2) → parse with that adapter. Unknown version,
-   or parse still fails, or contract says the old version but parsing failed → MANUAL_REVIEW `UNKNOWN_DIRECTORY_CONTRACT`.
-7. `get_account_status` — `GET /account-status/SAFE-401` cross-check: ACTIVE, authorized, portfolio `P-17`. Conflict → MANUAL_REVIEW `CONFLICTING_DIRECTORY_EVIDENCE`.
-8. Build **one** proposal + `proposalHash` → AWAITING_APPROVAL.
+Reviewer signs in with the local server-configured demo token. Server session cookie is HttpOnly and
+SameSite strict; identity/role are derived from server config and current policy. CLI tests may use
+X-Reviewer-Token. Every mutating control requires reviewer auth; an arbitrary actor field is ignored.
+Sessions are local memory and disappear on API restart. This is a demo boundary, not production SSO.
 
-Memory never overrides live data: the precedent only chooses *which read-only call to make next*.
+Proposal binds case/run/instruction/trade/portfolio, expected custodian revision, old/new account,
+mapping revision, allowed mutation and policy version. Canonical SHA-256 binds exact approval.
+Version/hash/policy mismatches fail; DENY is terminal. APPROVE does not execute: Apply separately sets
+executionRequested. Immediately before intent the worker rechecks current approval/policy, instruction
+revision/account/status and trade facts, directory contract/mappingRevision and account authorization.
+A changed input invalidates the approval and restarts investigation for a new proposal.
 
-## 8. Execution, ambiguous outcome and recovery (worker)
+`persist_intent` atomically records AWAITING_VERIFICATION, original operationId/idempotency key, approved
+payload, canonical wire request, payloadHash, retry budget and checkpoint worker ID. It must return a
+majority+j acknowledged document before any PATCH. Failure prevents dispatch. A deliberate pre-send
+crash occurs immediately after this checkpoint, while PATCH count remains zero.
 
-**Execute (stage APPROVED, `executionRequested: true`):**
-1. Pre-send recheck: custodian still rev `expectedRevision`, `REJECTED`, `oldAccount`; directory still says `newAccount`
-   (via `/contract` + adapter); `approval.approvedProposalHash == hash(proposal)`. If anything changed → invalidate.
-2. Persist intent (majority): `operation{operationId, idempotencyKey, payload, attemptCount: 1}`, `checkpoint`,
-   stage → `AWAITING_VERIFICATION`, event `INTENT_PERSISTED`.
-3. `PATCH /instructions/SI-2041` with header `Idempotency-Key: <operationId>`, timeout `CUSTODIAN_TIMEOUT_SECONDS` (3 s).
-   - 200 → event `ACK_RECEIVED`, then verify (an ACK alone is never trusted).
-   - Timeout / connection reset → outcome **UNKNOWN**. If `demo.crashWorkerOnUnknown` → `os._exit(137)` **without writing anything**.
-     Otherwise event `OUTCOME_UNKNOWN`; the next loop verifies.
-   - 409 → event, then verify (verification decides).
+The worker sends expectedRevision/accountId and Idempotency-Key. Custodian stores the canonical hash
+of `{instructionId,expectedRevision,accountId}`. The proposal hash binds approval's full scope; payloadHash
+binds the smaller external operation. They have separate purposes and must both remain consistent.
 
-**Verify (stage AWAITING_VERIFICATION — also the boot-resume path):**
-On boot, the worker scans `stage in [APPROVED(executionRequested), AWAITING_VERIFICATION]` and appends
-`RESUMED_FROM_CHECKPOINT` (with its new `workerId`) before continuing. It never re-investigates and never makes a new `operationId`.
+## 6. Custodian and recovery contract
 
-| Custodian evidence (`GET /operations/{opId}` + `GET /instructions/SI-2041`) | Action |
+Custodian checks a known idempotency key before checking current revision. Same key and canonical
+payload returns the original receipt; same key with another payload returns 409. For a new operation,
+expectedRevision must match, and instruction update plus receipt commit in one SQLite transaction.
+Lost-reply injection happens after commit: response is delayed beyond the client timeout. Worker may
+hard-exit 137 before saving any outcome, leaving the majority intent as the recovery source.
+
+On restart a new worker records RESUMED_FROM_CHECKPOINT once and loads the original operation. It reads
+`/operations/{operationId}` AND `/instructions/{instructionId}`. VERIFIED requires matching operation ID,
+instruction, account, revision=expected+1, ACCEPTED status, receipt ID, payloadHash, latestOperationId
+and unchanged stable trade facts. An acknowledgement alone never establishes completion.
+
+| Read-back result | Action |
 |---|---|
-| Receipt found and instruction agrees: `SI-2041`, `SAFE-401`, revision `expected+1`, `ACCEPTED`, `latestOperationId == opId` | → `VERIFIED`, save receipt + instruction evidence + `resumedByWorkerId` |
-| 404 `confirmedAbsent` **and** instruction unchanged **and** approval hash still valid **and** `attemptCount < maxAttempts` | increment `attemptCount` (conditional), event `RETRY_SAME_KEY`, resend **identical payload with the same key** |
-| 404 but instruction changed, or budget exhausted | → `MANUAL_REVIEW` |
-| 503 / timeout | event `VERIFICATION_DEFERRED`, `verification.deferrals += 1`; stay pending; after 5 → `MANUAL_REVIEW` `VERIFICATION_UNAVAILABLE` |
-| Receipt and instruction disagree | → `MANUAL_REVIEW` `CONFLICTING_CUSTODIAN_EVIDENCE` |
+| Receipt and instruction match saved intent | VERIFIED; no resend |
+| Confirmed operation 404 with matching unchanged baseline | Recheck current approval/policy/mapping, then retry original key/payload only within persisted budget (max 3 dispatch attempts) |
+| Operation lookup 503/timeout/unavailable | Bounded deferral (5) then MANUAL_REVIEW; never treat as absence |
+| Receipt/instruction conflict or changed baseline | MANUAL_REVIEW; no resend |
 
-Atlas provides durable workflow memory; it does **not** by itself guarantee exactly-once in another database.
-Exactly-once comes from (a) the stable `operationId` saved before sending, (b) the custodian's idempotency
-contract, and (c) authoritative read-back verification.
+The headline demo has one PATCH and one receipt after crash/restart. More than one PATCH can occur in
+other confirmed-absence/retry scenarios; the receiving system's stable-key contract still protects the
+business effect. The proof panel displays actual counters and calls an effect "applied exactly once"
+only when the case is VERIFIED and the matching operation receipt is present.
 
-## 9. Custodian idempotency contract
+## 7. Reset and validation
 
-SQLite tables (`custodian.db`):
+Reset acquires the same worker lease and refuses 409 while a worker is active. It resets only synthetic
+simulators, archives the old Atlas case, creates a new runId, clears approvals/intent and defaults pause
+ON/faults OFF. It preserves public market observations, verified incident memory and policy. Separate
+systems are not reset in a distributed transaction: run reset with all local services healthy; rerun if
+interrupted. Never reset during an execution or describe it as production transaction recovery.
 
-| Table | Columns |
-|---|---|
-| `instructions` | `instruction_id` PK, `trade_id`, `portfolio_id`, `security`, `quantity`, `side`, `revision`, `safekeeping_account`, `status`, `rejection_reason`, `rejection_note`, `latest_operation_id`, `updated_at` |
-| `instruction_revisions` | (`instruction_id`, `revision`) PK, `safekeeping_account`, `status`, `operation_id`, `created_at` |
-| `operations` | `idempotency_key` PK, `operation_id` UNIQUE, `receipt_id` UNIQUE, `instruction_id`, `payload_hash`, `payload_json`, `previous_revision`, `result_revision`, `account`, `status`, `created_at` |
-| `patch_requests` | `id` PK autoinc, `instruction_id`, `idempotency_key`, `outcome`, `received_at` — **every** PATCH received, to prove no second PATCH |
-| `faults` | `name` PK (`lost_response`, `operations_unavailable`), `armed` |
+66 passing tests include 9 tests running real worker/simulator/API processes against organizer Atlas,
+with actual exit 137 both after external commit and before send. Isolated test IDs/ports/SQLite files
+preserve canonical data. Browser rehearsal verified the same main path through real controls.
+See demo-script.md and mongodb-setup.md for operation and evidence.
 
-`PATCH /instructions/{id}` runs in **one `BEGIN IMMEDIATE` transaction**:
-1. Look up `Idempotency-Key` **first**. Same payload hash → return the original receipt (`replayed: true`). Different hash → `409 IDEMPOTENCY_KEY_REUSED`.
-2. Then check `expectedRevision == revision` and `status == REJECTED`; else `409 STALE_REVISION` / `409 NOT_AMENDABLE`.
-3. Bump revision, set account, set status `ACCEPTED`, set `latest_operation_id`, insert revision row and receipt row. `COMMIT`.
-4. **After commit**, if the one-shot `lost_response` fault is armed: disarm it and sleep `LOST_RESPONSE_DELAY_SECONDS` (default 10) before replying, so the caller times out even though the change is durable.
+## 8. Operational frontend
 
-## 10. Demo-mode safety
+The frontend now renders a stage-driven reconciliation workspace instead of a grid of monitoring panels.
+The left rail shows four lifecycle steps; the central workspace shows the current exception, read-only
+reconciliation checks, exact approval, or confirmation receipt. Trade context remains visible throughout.
+`lib/presentation.ts` translates stages, tools, events and errors into business terminology without
+changing API contracts. Current-version and proposal-hash arguments are still sent on approval/execution.
 
-- Demo routes (`/api/demo/*`) return 403 unless `DEMO_MODE=true`. Reset additionally requires body `{"confirm": "RESET"}`.
-- Reset touches only the synthetic demo case (`synthetic: true`, `caseId` in the fixture list), the demo policy doc, and the simulators' own SQLite files.
-- Simulator `/admin/*` routes require header `X-Sim-Admin: <SIM_ADMIN_TOKEN>`.
-- No endpoint exposes arbitrary process control. Worker restart is a CLI step (`scripts/worker.sh`).
-- Secrets only in `.env` (gitignored); `.env.example` has placeholders.
+The native modal Demo controls drawer isolates scenario injection from the operator's task, supports
+Escape/Close and traps focus through the browser dialog. Supporting records and technical audit/approval/
+verification evidence use disclosure elements. Public context appears after the real lookup. Live-read
+failures warn about stale records; signed-out/stale-case actions are disabled. A repeated idempotent
+submission is distinguished from a single submission in the confirmation receipt.
 
-## 11. Excluded from MVP
+## 9. Work queue and learned procedures
 
-Sharding, replication config, time-series collections, load balancing, Atlas Triggers, Change Streams,
-queues/microservices, LangGraph, LLM (deferred), real SSO, final settlement / asset movement.
+See learning-demo.md for the four-case lifecycle and exact memory/retrieval semantics. `scenarios.py`
+defines canonical queue membership; reset archives all 4 cases and creates fresh run IDs with demoOwner
+and demoBatchId metadata. Test fixture overrides retain only the first record, with unique test IDs.
+Worker holds one configured scope lease and scans its cases, including VERIFIED learning outboxes.
+Frontend remounts its workspace on selection, scopes every action/read and returns to the work queue.
+The similar follow-up requires canonical first case VERIFIED and learning STORED before /start.
+
+Independent verification saves learning={status:PENDING,attempts:0} atomically with VERIFIED. Publishing
+requires matching receipt/hash/instruction evidence, uses stable per-case/run incident ID and real
+Voyage document embedding, and is idempotent on restart. Namespaced indexed source directory:<owner>
+pre-filters learned Vector Search; portfolio/model/disposition/provenance and minimum 0.70 score constrain
+reuse. A retrieved verified procedure changes the actual next tool to contract-first. Live account and
+fresh exact approval remain authoritative. Pending provider/index states are explicit and bounded;
+query vectors (not match results) cache for 10 minutes. No new vector index or privileged Atlas role needed.
+
+Product framing: **TradeOps** is the financial application and the name shown in its interface.
+**ProofStep** is the control-layer architecture/methodology implemented over the TradeOps workflow.
+Present the TradeOps case lifecycle, then explain how the ProofStep layer provides durable intent,
+policy/approval gates, recovery, verified completion and reusable verified experience for Track3.

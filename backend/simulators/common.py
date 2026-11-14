@@ -44,7 +44,23 @@ def utc_now() -> str:
 
 def load_fixture(name: str) -> Any:
     with open(FIXTURES_DIR / name, encoding="utf-8") as fh:
-        return json.load(fh)
+        value = json.load(fh)
+    # Integration tests use unique synthetic IDs and their own simulator databases.
+    if name in {"trades.json", "instructions.json"}:
+        if os.getenv("DEMO_CASE_ID") or os.getenv("DEMO_TRADE_ID"):
+            value = value[:1]
+        for row in value:
+            row["tradeId"] = os.getenv("DEMO_TRADE_ID", row["tradeId"])
+            if "instructionId" in row:
+                row["instructionId"] = os.getenv("DEMO_CASE_ID", row["instructionId"])
+    return value
+
+
+def ensure_columns(store, table: str, columns: tuple[str, ...]) -> None:
+    present = {r["name"] for r in store.query_all(f"PRAGMA table_info({table})")}
+    for name in columns:
+        if name not in present:
+            store.conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
 
 
 def canonical_hash(payload: dict) -> str:

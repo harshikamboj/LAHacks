@@ -1,0 +1,102 @@
+[
+  {
+    "incidentId": "INC-001",
+    "title": "Retired safekeeping account on equity buy",
+    "symptom": "Custodian rejected a settlement instruction with INVALID_SAFEKEEPING_ACCOUNT. The receiving safekeeping account on the instruction had been closed after a custody migration.",
+    "verifiedResolution": "Looked up the portfolio's current active safekeeping account in the account directory, confirmed the old account was retired, and amended only the receiving account on the existing instruction after approval.",
+    "suggestedNextCheck": "GET_ACCOUNT_STATUS",
+    "source": "custodian",
+    "disposition": "VERIFIED",
+    "synthetic": true
+  },
+  {
+    "incidentId": "INC-002",
+    "title": "Quantity mismatch between broker and custodian",
+    "symptom": "Custodian instruction quantity 1000 did not match the broker's executed quantity 100. Instruction rejected as unmatched.",
+    "verifiedResolution": "Not an account problem. Escalated to the trade support desk to cancel and rebook; no account amendment was made.",
+    "suggestedNextCheck": "GET_BROKER_TRADE",
+    "source": "broker",
+    "disposition": "VERIFIED",
+    "synthetic": true
+  },
+  {
+    "incidentId": "INC-003",
+    "title": "Instruction pending, not rejected",
+    "symptom": "Operations flagged an instruction as failed, but the custodian status was PENDING_MATCH awaiting counterparty instructions.",
+    "verifiedResolution": "No amendment required. Waited for counterparty matching; amending a pending instruction would have created a duplicate.",
+    "suggestedNextCheck": "GET_CUSTODIAN_INSTRUCTION",
+    "source": "custodian",
+    "disposition": "VERIFIED",
+    "synthetic": true
+  },
+  {
+    "incidentId": "INC-004",
+    "title": "Account field moved in the new directory payload",
+    "symptom": "Account directory response no longer contained the settlementAccount field after a directory release. The integration could not read the receiving account and reported the account as missing.",
+    "verifiedResolution": "Read the directory's live /contract endpoint, found schema version 2 where the account moved to delivery.safekeepingAccount, parsed it with the validated version 2 adapter, and confirmed the active account before proposing the amendment.",
+    "suggestedNextCheck": "GET_DIRECTORY_CONTRACT",
+    "source": "directory",
+    "disposition": "VERIFIED",
+    "synthetic": true
+  },
+  {
+    "incidentId": "INC-005",
+    "title": "Account authorized for a different portfolio",
+    "symptom": "Directory returned an active safekeeping account, but it was authorized for portfolio P-22 rather than the instruction's portfolio.",
+    "verifiedResolution": "Rejected the proposed account because portfolio scope did not match. Routed to manual review with the directory evidence attached.",
+    "suggestedNextCheck": "GET_ACCOUNT_STATUS",
+    "source": "directory",
+    "disposition": "VERIFIED",
+    "synthetic": true
+  },
+  {
+    "incidentId": "INC-006",
+    "title": "Duplicate amendment after timeout retry",
+    "symptom": "A settlement amendment timed out and an operator resubmitted with a new request ID. The custodian applied the account change twice and issued two receipts.",
+    "verifiedResolution": "Root cause was retrying without an idempotency key. Policy changed to persist one operation ID before sending and to query the custodian operation record before any retry.",
+    "suggestedNextCheck": "GET_CUSTODIAN_OPERATION",
+    "source": "custodian",
+    "disposition": "VERIFIED",
+    "synthetic": true
+  },
+  {
+    "incidentId": "INC-007",
+    "title": "Custodian operations endpoint temporarily unavailable",
+    "symptom": "After sending an amendment, the custodian operation lookup returned 503 for several minutes, so the outcome could not be confirmed.",
+    "verifiedResolution": "Held the case pending without retrying the amendment. When the endpoint recovered the receipt was present and the case was verified.",
+    "suggestedNextCheck": "GET_CUSTODIAN_OPERATION",
+    "source": "custodian",
+    "disposition": "VERIFIED",
+    "synthetic": true
+  },
+  {
+    "incidentId": "INC-008",
+    "title": "Unrecognized directory response schema",
+    "symptom": "Account directory returned schemaVersion 3 with a routing.custodyLeg structure that no adapter supported.",
+    "verifiedResolution": "Did not guess the account. Sent the case to manual review until a version 3 adapter was written and validated.",
+    "suggestedNextCheck": "GET_DIRECTORY_CONTRACT",
+    "source": "directory",
+    "disposition": "VERIFIED",
+    "synthetic": true
+  },
+  {
+    "incidentId": "INC-009",
+    "title": "Security identifier mismatch",
+    "symptom": "Custodian instruction referenced security XYZ.B while the broker trade was for XYZ. Instruction rejected for unknown security.",
+    "verifiedResolution": "Trade support corrected the security reference; not a receiving account issue.",
+    "suggestedNextCheck": "GET_BROKER_TRADE",
+    "source": "broker",
+    "disposition": "VERIFIED",
+    "synthetic": true
+  },
+  {
+    "incidentId": "INC-010",
+    "title": "Unverified note: switch account without checking directory",
+    "symptom": "Settlement instruction rejected for an invalid account; an analyst note suggested copying the account from a previous trade.",
+    "verifiedResolution": "Unreviewed suggestion, never verified. Copying accounts between trades bypasses the directory authority.",
+    "suggestedNextCheck": "NONE",
+    "source": "analyst_note",
+    "disposition": "UNVERIFIED",
+    "synthetic": true
+  }
+]

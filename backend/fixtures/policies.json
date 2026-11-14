@@ -1,0 +1,16 @@
+[
+  {
+    "policyId": "settlement-amendment",
+    "version": "v1",
+    "allowedMutation": "AMEND_SAFEKEEPING_ACCOUNT",
+    "requiredRole": "SETTLEMENT_APPROVER",
+    "reviewers": [
+      { "reviewerId": "demo-reviewer", "displayName": "Demo Reviewer (demo auth, not SSO)", "role": "SETTLEMENT_APPROVER" }
+    ],
+    "maxAttempts": 3,
+    "maxVerificationDeferrals": 5,
+    "defaultDirectoryContractVersion": 1,
+    "supportedDirectoryContractVersions": [1, 2],
+    "synthetic": true
+  }
+]

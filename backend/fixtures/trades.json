@@ -1,0 +1,13 @@
+[
+  {
+    "tradeId": "TR-2041",
+    "portfolioId": "P-17",
+    "side": "BUY",
+    "security": "XYZ",
+    "quantity": 100,
+    "price": "42.50",
+    "currency": "CAD",
+    "status": "EXECUTED",
+    "executedAt": "2026-11-13T19:42:10Z"
+  }
+]

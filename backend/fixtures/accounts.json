@@ -1,0 +1,8 @@
+{
+  "defaultContractVersion": 1,
+  "accounts": [
+    { "accountId": "SAFE-100", "portfolioId": "P-17", "status": "RETIRED", "authorized": false, "retiredOn": "2026-10-31" },
+    { "accountId": "SAFE-401", "portfolioId": "P-17", "status": "ACTIVE", "authorized": true, "retiredOn": null },
+    { "accountId": "SAFE-233", "portfolioId": "P-22", "status": "ACTIVE", "authorized": true, "retiredOn": null }
+  ]
+}

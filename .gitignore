@@ -1,0 +1,27 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# simulator runtime data
+backend/simulators/data/*
+!backend/simulators/data/.gitkeep
+*.db
+*.sqlite3
+
+# node / frontend
+node_modules/
+frontend/dist/
+
+# os / editors
+.DS_Store
+.idea/
+.vscode/
+*.log

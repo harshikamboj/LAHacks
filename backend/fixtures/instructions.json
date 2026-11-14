@@ -1,0 +1,15 @@
+[
+  {
+    "instructionId": "SI-2041",
+    "tradeId": "TR-2041",
+    "portfolioId": "P-17",
+    "side": "BUY",
+    "security": "XYZ",
+    "quantity": 100,
+    "revision": 1,
+    "safekeepingAccount": "SAFE-100",
+    "status": "REJECTED",
+    "rejectionReason": "INVALID_SAFEKEEPING_ACCOUNT",
+    "rejectionNote": "Receiving safekeeping account SAFE-100 is not open for delivery at this custodian. Instruction cannot be matched. Amend the receiving account and resubmit."
+  }
+]

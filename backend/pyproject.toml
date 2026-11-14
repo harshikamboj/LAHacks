@@ -14,16 +14,18 @@ dependencies = [
   "httpx>=0.28,<1",
   "fastapi>=0.115,<1",
   "uvicorn>=0.34,<1",
+  "python-dotenv>=1.0,<2",  # simulators load the repo .env without the app Settings
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.3,<10", "ruff>=0.11,<1"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["app"]
+packages = ["app", "simulators"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 markers = ["atlas: opt-in tests using real Atlas and uniquely identified synthetic test records"]
 
 [tool.ruff]

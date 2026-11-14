@@ -1,5 +1,6 @@
 """Load the repository .env regardless of the process working directory."""
 
+from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field, SecretStr, field_validator
@@ -27,6 +28,17 @@ class Settings(BaseSettings):
     demo_mode: bool = True
     demo_reviewer_id: str = "demo-reviewer"
     demo_reviewer_token: SecretStr = SecretStr("")
+    demo_case_id: str = "SI-2041"
+
+    # Simulated external systems (app lane). Each is its own process with its own SQLite file.
+    broker_url: str = "http://127.0.0.1:8101"
+    directory_url: str = "http://127.0.0.1:8102"
+    custodian_url: str = "http://127.0.0.1:8103"
+    sim_admin_token: SecretStr = SecretStr("")
+
+    # Workflow worker
+    custodian_timeout_seconds: float = Field(default=3.0, gt=0, le=30)
+    worker_poll_seconds: float = Field(default=1.0, gt=0, le=10)
 
     @field_validator("mongodb_db")
     @classmethod
@@ -42,3 +54,9 @@ class Settings(BaseSettings):
             name = "MONGODB_SETUP_URI" if setup else "MONGODB_URI"
             raise ValueError(f"Configure {name} in the gitignored repository .env")
         return uri
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """Process-wide settings for the API and worker (tests construct Settings directly)."""
+    return Settings()

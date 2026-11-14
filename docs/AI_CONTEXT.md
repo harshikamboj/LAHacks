@@ -18,14 +18,14 @@ everything binding from them is captured in `docs/architecture.md`.
 | Area | Status |
 |---|---|
 | Repo | MongoDB runtime modules, setup/verification scripts and tests added; docs and fixtures retained. |
-| Simulators (broker/directory/custodian) | Not started |
-| Backend API + worker | Database foundation implemented; HTTP routes and actual workflow worker not started. |
+| Simulators (broker/directory/custodian) | **Built + tested** (merged from branch `simulators`). Separate FastAPI processes with own SQLite files; custodian idempotency (key checked before revision, amendment + receipt in one transaction), lost-response and operations-unavailable faults, `/admin/proof`. Lost-response verified against real processes. |
+| Backend API + worker | Database foundation implemented. API routes built: `GET /api/health` (Atlas ping, worker heartbeat from `workers`, memory status via `IncidentMemory.status()`), `GET /api/cases/{id}/sources`, `/api/demo/{reset,state,faults,directory-version,custodian-proof}`. **Not built:** case routes (`/cases/{id}`, investigate/approve/execute/timeline), the workflow worker, investigation, approvals, verification. |
 | Atlas Sandbox | Organizer confirmed: Agents in Context Toronto, project 6af899b4fb07f6aa867aa481, Cluster0 (M10/AWS US_WEST_1/MongoDB 9.0.7). Live setup and runtime verification passed; current .env rechecked with both runtime/setup connections successful; targets organizer Cluster0. See mongodb-setup.md. |
 | Development Atlas | SettleFlow 2.0 / tradeops-sandbox (Free/M0, AWS US_EAST_1, MongoDB 8.0.37): verified development environment retained; active runtime now uses organizer Cluster0. |
 | Vector Search | **Verified on organizer Cluster0:** READY index; 9 verified incidents embedded with Voyage voyage-3.5-lite, 1024 dims. Real query returns INC-004 first (score ~0.800), suggesting GET_DIRECTORY_CONTRACT. Unverified INC-010 excluded. |
-| Frontend workbench | Not started |
+| Frontend workbench | **Shell built** (`frontend/`, React 18 + Vite 5 + TS, **http://localhost:3000**). Live source cards, failure lab, proof panel from real API reads. Investigation/approval/timeline show an honest pending state and only poll `/api/cases/{id}` once health reports Atlas connected. |
 | Team Atlas access | Three groupmates added to the organizer Sandbox with Project Data Access Read/Write, verified in the Atlas users list. Personal driver credentials/IP access are separate. |
-| Tests | All 23 tests passed against organizer Cluster0 (15 local + 8 real Atlas), including with credentials exported. Offline settings tests are isolated from shell variables (P2 fixed). Strict runtime verification including real semantic retrieval passed. Full worker/custodian crash recovery not yet built/tested. |
+| Tests | All 23 tests passed against organizer Cluster0 (15 local + 8 real Atlas), including with credentials exported. Offline settings tests are isolated from shell variables (P2 fixed). Strict runtime verification including real semantic retrieval passed. Full worker/custodian crash recovery not yet built/tested. After merging the app lane: **33 offline tests pass** (`uv run pytest -m 'not atlas'`: 15 DB-lane + 18 simulator/idempotency); live Atlas tests not re-run on Harshi's Mac (no credentials there). |
 
 ## 3. Non-negotiable rules (from the brief)
 
@@ -143,3 +143,11 @@ Remaining application integration:
   real credentials exported, including 8 live Atlas tests. Ruff/format/whitespace checks passed. Runtime
   config and the local .env were not changed; this fix affects test reliability, not the demo workflow.
   P2 review finding resolved. No commit or push performed.
+- **2026-11-14 — merge of `simulators` with `main` (Claude Code, Harshi's Mac).** Took Keerat's version of every
+  conflicting file (config, pyproject, conftest, CLAUDE.md, README, this file). Added to Keerat's `Settings`
+  (additive only): `demo_case_id`, `broker_url`, `directory_url`, `custodian_url`, `sim_admin_token` (SecretStr),
+  `custodian_timeout_seconds`, `worker_poll_seconds`, plus `get_settings()`. pyproject: hatch packages now
+  `app` + `simulators`, pytest `pythonpath = ["."]`, explicit `python-dotenv`. conftest: simulator fixtures appended
+  (they set their own `SIM_ADMIN_TOKEN` because the autouse fixture clears settings env vars). `/api/health` now
+  uses `create_client`/`get_database`, the `workers` heartbeat doc and `IncidentMemory.status()` (cached 30 s).
+  Install with `cd backend && uv sync --extra dev`. Next: case routes + worker using `CaseStore`.

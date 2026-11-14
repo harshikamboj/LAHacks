@@ -39,3 +39,17 @@ records in tradeops; current credentials deliberately cannot access arbitrary te
 `backend/tests/conftest.py` clears exported application settings only for offline tests, which also use
 `Settings(_env_file=None)`. Tests marked `atlas` keep real environment/.env access. Do not remove runtime
 environment loading to make a unit test pass; demo configuration must continue to use the real credentials.
+
+## Ports and running (app lane)
+
+| Process | Port | Start |
+|---|---|---|
+| Broker / directory / custodian simulators | 8101 / 8102 / 8103 | `./scripts/dev.sh` (starts all three + API) |
+| FastAPI API | 8000 | `./scripts/dev.sh` |
+| Workflow worker | — | `scripts/worker.sh` (not built yet) |
+| React + Vite workbench | **3000** | `cd frontend && npm run dev` (proxies `/api` → :8000) |
+
+Install and test: `cd backend && uv sync --extra dev && uv run pytest -m 'not atlas'`;
+frontend: `cd frontend && npm install && npx tsc -b --noEmit`. Simulators are `--factory` apps
+(`simulators.<name>:create_app`) with their own SQLite files in `backend/simulators/data/` (gitignored).
+

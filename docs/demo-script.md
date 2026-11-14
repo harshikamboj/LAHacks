@@ -1,5 +1,12 @@
 # 3-minute live demo script
 
+Current build note (2026-11-14): MongoDB setup/durability primitives exist; the application processes and
+UI described below remain to build. Before a real rehearsal, confirm `.env` targets the organizer's
+**Agents in Context Toronto / Cluster0**, run `backend/scripts/verify_atlas.py`, and (after configuring
+Voyage) run it with `--require-memory`. That strict query check has now passed on organizer Cluster0
+with 9 real Voyage embeddings and INC-004 returned first. Do not present the database subprocess persistence test as a
+full worker crash/custodian exactly-once demonstration. See `mongodb-setup.md` for verified features.
+
 Setup (before judges arrive): terminals running `scripts/dev.sh` (3 simulators + API), `scripts/worker.sh`,
 and `cd frontend && npm run dev`. Open http://localhost:5173. Click **Reset Demo**.
 

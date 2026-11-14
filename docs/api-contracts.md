@@ -1,5 +1,15 @@
 # API contracts
 
+Implementation status (2026-11-14): these HTTP routes remain planned. The MongoDB integration exists in
+`app/db.py`, `app/schema.py`, `app/seed.py`, and `app/services/memory.py`; see `mongodb-setup.md`.
+API/worker services must reuse `CaseStore.cas_update` with expected runId/stage/version and handle None
+as a 409 or a skipped competing worker action. `persist_intent` is called after live evidence checks and
+must return before any PATCH. `IncidentMemory.retrieve` returns
+`{query, status: FOUND|NONE|PENDING|DISABLED, reason, matches: [...]}`; real matches include incidentId,
+score and suggestedNextCheck. Missing Voyage key produces PENDING, never a fabricated match.
+Live backend retrieval is now verified with the saved key: the directory-field query returns INC-004
+first and GET_DIRECTORY_CONTRACT as its suggestion. These HTTP routes remain to be implemented.
+
 All JSON. Timestamps ISO-8601 UTC (`2026-11-14T15:04:05.123Z`). Errors use one shape everywhere:
 
 ```json
@@ -131,7 +141,7 @@ Fault `lost_response` armed: commit happens, then the reply is delayed `LOST_RES
 { "api": "ok", "atlas": { "ok": true, "db": "tradeops", "error": null },
   "simulators": { "broker": "ok", "directory": "ok", "custodian": "ok" },
   "worker": { "online": true, "workerId": "worker-4812-ab12", "pid": 4812, "heartbeatAt": "...", "ageSeconds": 0.6 },
-  "memory": { "vectorSearch": "READY|PENDING", "reason": null }, "demoMode": true }
+  "memory": { "vectorSearch": "READY|PENDING|DISABLED", "reason": null }, "demoMode": true }
 ```
 
 ### `GET /api/cases` → `[ { "caseId", "tradeId", "portfolioId", "stage", "version", "updatedAt" } ]`

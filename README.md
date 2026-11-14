@@ -38,12 +38,40 @@ broker / directory / custodian simulators. See [docs/architecture.md](docs/archi
 
 ## Status
 
-Early build. See [docs/AI_CONTEXT.md](docs/AI_CONTEXT.md) for what is implemented and verified.
-Run instructions will be added here as components land.
+MongoDB foundation implemented: scoped PyMongo connections, strict case validation, unique indexes,
+synthetic seeds, atomic stage/version/run updates, majority-written operation intent, recovery scans,
+worker heartbeat helpers and real Atlas Vector Search integration. The organizer Sandbox is **Agents in
+Context Toronto / Cluster0**. See [database setup](docs/mongodb-setup.md) for the current deployment state.
+
+15 local tests and 8 live organizer Atlas tests passed, including checkpoint recovery in a new process.
+Voyage is configured locally: 9 verified incidents have real 1024-dimensional embeddings; strict semantic
+verification returns INC-004 first for the directory-field query. The API, actual workflow worker,
+simulators and UI are still to build; the track behaviors above describe the intended complete product.
+See [docs/AI_CONTEXT.md](docs/AI_CONTEXT.md) for the handoff.
+
+Offline tests are isolated from exported application settings; Atlas tests retain real credentials.
+Both modes have passed with API/database credentials exported in the test process.
 
 ## Configuration
 
 Copy `.env.example` to `.env` and fill in values. Never commit `.env`.
+This development machine already has generated credentials in its local `.env`; preserve them.
+
+```bash
+python3 -m venv backend/.venv
+backend/.venv/bin/python -m pip install -e 'backend[dev]'
+cd backend
+.venv/bin/python scripts/setup_atlas.py
+.venv/bin/python scripts/verify_atlas.py
+.venv/bin/pytest -m 'not atlas' -q
+RUN_ATLAS_TESTS=1 .venv/bin/pytest -m atlas -q
+```
+
+Setup uses the separate `MONGODB_SETUP_URI`; runtime and verification use `MONGODB_URI` (readWrite on
+tradeops only). The current local key and semantic query are verified. On a new machine, add your own
+`VOYAGE_API_KEY`, then run setup and
+`.venv/bin/python scripts/verify_atlas.py --require-memory` to prove the real query returns INC-004 first.
+Do not interpret a passing core database check as completed Vector Search or custodian crash recovery.
 
 ## Team / originality
 

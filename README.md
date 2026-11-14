@@ -1,12 +1,15 @@
-# ProofStep / TradeOps Reconciler
+# TradeOps Reconciler · ProofStep control architecture
 
 **MongoDB Agents in Context Toronto — Track 3: Finish the Job**
 
-ProofStep is the durable workflow control layer. TradeOps is its demonstration: investigate a rejected
+TradeOps is the user-facing financial operations application. It implements ProofStep, the durable
+control-layer architecture/methodology that solves Track3. In TradeOps, an operator can investigate a rejected
 settlement instruction, approve one exact account amendment, apply it, and verify the effect after a
 lost reply and a real worker crash. The Operations Console is the React workbench.
 
-The complete local demo is implemented. It uses the organizer's MongoDB Atlas Sandbox for checkpoints,
+The demo now starts with an actionable four-case work queue; a verified first case teaches the similar follow-up. See [learning demo](docs/learning-demo.md).
+
+The complete local demo is implemented as a four-step operational case workflow: Review exception → Reconcile records → Authorize correction → Confirm completion. Business language leads each action; technical evidence is expandable and presenter faults live in a separate Demo controls drawer. It uses the organizer's MongoDB Atlas Sandbox for checkpoints,
 policy, real Vector Search and **66,693 SEC market observations**. Broker trades, accounts, custodian
 instructions and receipts are fictional, in three independent SQLite-backed simulators. No real
 financial transaction occurs. `ACCEPTED` means accepted for processing, not finally settled.
@@ -71,12 +74,15 @@ previous run in Atlas, and preserves market data, incidents and policy.
 
 ## Validation
 
-**66 tests passed** against the organizer Atlas: 49 offline, 8 database integration, 9 real-process
-workflow tests. Coverage includes real exit-137 recovery after commit and before send, stale/denied
-approval, changed mapping revision, unavailable verification reads, unknown schema, mismatched trade
-facts, no-action, reset protection and live retrieval-guided v2 adaptation. Frontend production build,
-Ruff, formatting and whitespace checks passed. Browser rehearsal also completed the full lost-reply
-crash/restart flow with one receipt and one PATCH.
+Current checks: **55 offline tests and 8 Atlas foundation tests passed**, plus the live two-case
+learning regression. It verifies actual publication/retrieval, safe publication retry, a fresh follow-up
+approval and separate operation/receipt with one submission per case. The 9 original workflow regressions
+also passed during this extension; the full suite was not rerun as a single batch after backoff changes.
+Frontend production build, Ruff/format and whitespace checks pass. Browser rehearsal verified all four
+outcomes and the learned follow-up (actual score 0.86), leaving it ready for its own approval.
+
+Live embedding tests consume the provider's rate limit. Run them sequentially. Observed 429 responses
+remain explicit pending states with bounded retry; they are never reported as retrieved experience.
 
 ```bash
 cd backend
@@ -94,6 +100,7 @@ scoped to their own records. They preserve the canonical demo and market collect
 
 ## Project references
 
+- [Problem statement and track positioning](docs/problem-statement.md)
 - [Architecture and recovery rules](docs/architecture.md)
 - [HTTP contracts](docs/api-contracts.md)
 - [Atlas setup, collections and dataset queries](docs/mongodb-setup.md)

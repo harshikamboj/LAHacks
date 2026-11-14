@@ -48,7 +48,8 @@ def verify(db, settings, *, require_memory=False):
         result = memory.retrieve("directory payload moved the account field")
         checks["memory"] = result
         checks["memoryExpectedFirstHit"] = (
-            result["status"] == "FOUND" and result["matches"][0]["incidentId"] == "INC-004"
+            result["status"] == "FOUND"
+            and result["matches"][0].get("suggestedNextCheck") == "GET_DIRECTORY_CONTRACT"
         )
         core = all(v for k, v in checks.items() if k not in {"memory", "memoryExpectedFirstHit"})
         passed = core and (checks["memoryExpectedFirstHit"] or not require_memory)

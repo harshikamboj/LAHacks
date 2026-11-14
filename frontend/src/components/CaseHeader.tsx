@@ -1,45 +1,14 @@
-import type { CaseDoc, Health, Sources } from "../lib/api";
-import { Pill, type Tone } from "./ui";
+import type { CaseDoc, Health } from "../lib/api";
+import { stageLabels } from "../lib/presentation";
+import { Pill } from "./ui";
 
-const STAGE_TONE: Record<string, Tone> = {
-  NEW: "muted", INVESTIGATING: "info", AWAITING_APPROVAL: "info", APPROVED: "info",
-  AWAITING_VERIFICATION: "warn", VERIFIED: "ok", MANUAL_REVIEW: "bad", DENIED: "bad", NO_ACTION: "muted",
-};
-
-const WORKER_LABEL: Record<string, string> = {
-  OFFLINE: "offline", NEVER_STARTED: "not started", UNKNOWN: "unknown (Atlas not connected)",
-};
-
-export function CaseHeader({ health, sources, caseDoc, caseError }: {
-  health: Health | null; sources: Sources | null; caseDoc: CaseDoc | null; caseError: string | null;
-}) {
-  const trade = sources?.broker.data;
-  const worker = health?.worker;
-  return (
-    <header className="topbar">
-      <div>
-        <h1>ProofStep <span className="tagline">TradeOps Reconciler · Finish the Job</span></h1>
-        <p className="sub mono">
-          Case SI-2041
-          {trade && ` · ${trade.tradeId} · ${trade.portfolioId} · ${trade.side} ${trade.quantity} ${trade.security} @ ${trade.currency} ${trade.price}`}
-        </p>
-      </div>
-      <div className="pills" aria-live="polite">
-        {caseDoc ? (
-          <Pill tone={STAGE_TONE[caseDoc.stage] ?? "muted"}>{caseDoc.stage.replace(/_/g, " ").toLowerCase()}</Pill>
-        ) : (
-          <Pill tone="muted" >{caseError ?? "loading case"}</Pill>
-        )}
-        {health ? (
-          worker?.online ? <Pill tone="ok">{worker.workerId ?? "worker"} online</Pill>
-            : <Pill tone="bad">worker {WORKER_LABEL[worker?.status ?? ""] ?? "offline"}</Pill>
-        ) : <Pill tone="muted">worker unknown</Pill>}
-        {health && (
-          <Pill tone={health.atlas.ok ? "ok" : "warn"}>
-            Atlas {health.atlas.ok ? "connected" : health.atlas.status.replace(/_/g, " ").toLowerCase()}
-          </Pill>
-        )}
-      </div>
-    </header>
-  );
+export function CaseHeader({ health, caseDoc, onDemo }: { health: Health | null; caseDoc: CaseDoc | null; onDemo: () => void }) {
+  return <header className="product-header">
+    <a className="brand" href="/" aria-label="TradeOps home"><span className="brand-mark">T<span>↗</span></span><strong>TradeOps</strong><span className="brand-divider" /><span>Settlement operations</span></a>
+    <div className="header-actions">
+      <span className={`connection ${health?.atlas.ok ? "connected" : ""}`}>{health?.atlas.ok ? "Case saved in Atlas" : "Connecting to case records"}</span>
+      {caseDoc && <Pill tone={caseDoc.stage === "VERIFIED" ? "ok" : "muted"}>{stageLabels[caseDoc.stage] ?? "Review case"}</Pill>}
+      <button className="quiet" onClick={onDemo}>Demo controls</button>
+    </div>
+  </header>;
 }

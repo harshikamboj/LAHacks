@@ -15,6 +15,7 @@ from app.config import get_settings
 from app.db import CaseStore
 from app.errors import ApiError
 from app.lifecycle import reset_demo
+from app.routes.cases import get_case
 from app.runtime import database
 from app.services import simulator_clients as sims
 
@@ -34,6 +35,7 @@ class ResetBody(BaseModel):
 
 
 class FaultsBody(BaseModel):
+    caseId: str | None = None
     lostResponse: bool | None = None
     operationsUnavailable: bool | None = None
     crashWorkerOnUnknown: bool | None = None
@@ -55,8 +57,8 @@ def reset(body: ResetBody, actor=Depends(reviewer)):
 
 
 @router.get("/state")
-def state():
-    case = CaseStore(database()).get(get_settings().demo_case_id) or {}
+def state(caseId: str | None = None):
+    case = get_case(caseId or get_settings().demo_case_id)
     return {
         "faults": sims.custodian().get_faults(),
         "directoryContractVersion": sims.directory().get_contract()["version"],
@@ -75,7 +77,7 @@ def state():
 @router.post("/faults")
 def faults(body: FaultsBody, actor=Depends(reviewer)):
     store = CaseStore(database())
-    case = store.get(get_settings().demo_case_id)
+    case = get_case(body.caseId or get_settings().demo_case_id)
     if not case:
         raise ApiError(404, "CASE_NOT_FOUND", "Reset demo first")
     flags = {
@@ -113,5 +115,6 @@ def directory_version(body: DirectoryVersionBody, actor=Depends(reviewer)):
 
 
 @router.get("/custodian-proof")
-def custodian_proof():
-    return sims.custodian().proof(get_settings().demo_case_id)
+def custodian_proof(caseId: str | None = None):
+    case = get_case(caseId or get_settings().demo_case_id)
+    return sims.custodian().proof(case["caseId"])

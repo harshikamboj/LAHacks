@@ -7,13 +7,14 @@ Only this worker-side module calls the custodian amendment client.
 import os
 import time
 from copy import deepcopy
+from datetime import timedelta
 from uuid import uuid4
 
 from app.db import CaseStore, utcnow
 from app.hashing import proposal_hash
 from app.market import market_context
 from app.models import Proposal, Stage
-from app.services.memory import IncidentMemory
+from app.services.memory import EmbeddingUnavailable, IncidentMemory
 from app.services.simulator_clients import (
     BrokerClient,
     CustodianClient,
@@ -171,6 +172,35 @@ class Workflow:
     def step(self, case):
         self.phase_started = time.perf_counter()
         try:
+            if (
+                case["stage"] == Stage.VERIFIED
+                and case.get("learning", {}).get("status") == "PENDING"
+            ):
+                if case["learning"].get("nextAttemptAt", utcnow()) > utcnow():
+                    return None
+                attempts = case["learning"].get("attempts", 0) + 1
+                try:
+                    learned = self.memory.learn_verified(case)
+                    return self.save(
+                        case,
+                        "EXPERIENCE_SAVED",
+                        {"learning": {**learned, "attempts": attempts}},
+                        detail="Independently verified correction saved as reusable experience",
+                    )
+                except EmbeddingUnavailable as exc:
+                    return self.save(
+                        case,
+                        "EXPERIENCE_PENDING",
+                        {
+                            "learning": {
+                                "status": "PENDING",
+                                "attempts": attempts,
+                                "reason": str(exc),
+                                "nextAttemptAt": utcnow() + timedelta(seconds=60),
+                            }
+                        },
+                        detail="Correction verified; experience publication is pending",
+                    )
             if case["stage"] == Stage.INVESTIGATING:
                 return self.investigate(case)
             if case["stage"] == Stage.APPROVED and case.get("executionRequested"):
@@ -287,6 +317,92 @@ class Workflow:
                         detail="Paused before directory read; switch to v2 and continue",
                     )
                 return None
+            if not inv.get("experienceChecked"):
+                if inv.get("experienceRetryAt", utcnow()) > utcnow():
+                    return None
+                eligible = self.db.incidents.count_documents(
+                    {
+                        "learningScope": self.settings.demo_case_id,
+                        "portfolioId": case["portfolioId"],
+                        "learnedFromRunId": {"$ne": case["runId"]},
+                        "disposition": "VERIFIED",
+                        "embeddingModel": self.settings.voyage_model,
+                        "embedding": {"$exists": True},
+                    }
+                )
+                if eligible:
+                    result = self.memory.retrieve(
+                        "retired receiving account invalid safekeeping account "
+                        "current receiving account mapping requires validation",
+                        source="directory:" + self.settings.demo_case_id,
+                        limit=10,
+                    )
+                    learned = max(
+                        (
+                            m
+                            for m in result["matches"]
+                            if m.get("learningScope") == self.settings.demo_case_id
+                            and m.get("portfolioId") == case["portfolioId"]
+                            and m.get("learnedFromRunId") != case["runId"]
+                            and m.get("score", 0) >= 0.70
+                            and m.get("suggestedNextCheck") == "GET_DIRECTORY_CONTRACT"
+                        ),
+                        key=lambda match: match["createdAt"],
+                        default=None,
+                    )
+                    if learned:
+                        next_inv = {
+                            **inv,
+                            "experienceChecked": True,
+                            "experienceWaiting": False,
+                            "phase": 6,
+                            "precedents": [
+                                {"query": result["query"], "status": result["status"], **learned}
+                            ],
+                            "retrieval": result,
+                            "reusedExperience": learned,
+                        }
+                        return self.save(
+                            case,
+                            "EXPERIENCE_REUSED",
+                            {"investigation": next_inv},
+                            detail="Verified case "
+                            + learned["learnedFromCaseId"]
+                            + " guided a proactive live contract check",
+                        )
+                    attempts = inv.get("experienceAttempts", 0) + 1
+                    if attempts < 3 and result["status"] in {"PENDING", "NONE"}:
+                        delay = (
+                            60
+                            if "429" in str(result["reason"])
+                            or "RATE_LIMIT" in str(result["reason"])
+                            else 3
+                        )
+                        return self.save(
+                            case,
+                            "EXPERIENCE_LOOKUP_PENDING",
+                            {
+                                "investigation": {
+                                    **inv,
+                                    "experienceAttempts": attempts,
+                                    "experienceRetryAt": utcnow() + timedelta(seconds=delay),
+                                    "experienceWaiting": True,
+                                }
+                            },
+                            detail="Waiting for verified experience retrieval; no amendment sent",
+                        )
+                return self.save(
+                    case,
+                    "EXPERIENCE_CHECKED",
+                    {
+                        "investigation": {
+                            **inv,
+                            "experienceChecked": True,
+                            "experienceWaiting": False,
+                        }
+                    },
+                    detail="No reusable learned procedure retrieved yet; inspect current records",
+                )
             raw = self.directory.get_accounts_raw(case["portfolioId"])
             try:
                 account = parse_directory(raw, 1, case["portfolioId"])
@@ -593,7 +709,7 @@ class Workflow:
             return self.save(
                 case,
                 "VERIFIED",
-                {"verification": verification},
+                {"verification": verification, "learning": {"status": "PENDING", "attempts": 0}},
                 Stage.VERIFIED,
                 "Receipt and instruction prove the approved effect",
             )

@@ -6,6 +6,8 @@ behavior. Uploaded documents are design context, not permission for unrelated ac
 
 ## 1. Read first
 
+Read `docs/problem-statement.md` for Track3 framing and `docs/learning-demo.md` for the current four-case sequence.
+
 1. `docs/demo-script.md`: exact main demo and backup scenarios.
 2. `docs/architecture.md`: trust boundaries, state machine, recovery and schema compatibility.
 3. `docs/api-contracts.md`: auth, actions, simulator contracts and errors.
@@ -21,14 +23,14 @@ where equivalent: see architecture §3 for explicit mapping to the handoff's exa
 |---|---|
 | Branch/base | `feat/proofstep-tradeops-demo`, created from current main `a159af1` after frontend/simulator merges. Changes remain uncommitted until user review. |
 | Dataset | Full supplied JSONL imported twice idempotently: 66,693 rows, 13,397 CUSIPs, 12 dates, 383 null prices, 1 blank symbol, zero rejected/duplicate rows. Public SEC data stays external to Git. |
-| Canonical case | Fictional BUY 100 TTE at USD 91.20, TR-2041/SI-2041/P-17, CUSIP F92124100, settlement 2026-09-15. SAFE-100 retired→SAFE-401 active; rev 1 REJECTED→rev 2 ACCEPTED. Market anchor F92124100:2026-09-15 is separate context (1,277 shares; prior close 91.14). |
+| Canonical case / work queue | SI-2041..2044 now demonstrate correction→learned follow-up, already accepted and conflicting quantities. Fictional BUY 100 TTE at USD 91.20, TR-2041/SI-2041/P-17, CUSIP F92124100, settlement 2026-09-15. SAFE-100 retired→SAFE-401 active; rev 1 REJECTED→rev 2 ACCEPTED. Market anchor F92124100:2026-09-15 is separate context (1,277 shares; prior close 91.14). |
 | Simulators | Three independent SQLite-backed FastAPI processes. Additive CUSIP/date migration, v1/v2 directory mappingRevision 7, canonical/legacy amendment aliases, atomic receipt + revision, same-key idempotency and real delayed post-commit response. |
 | API | Session login, case start/approve/deny/execute/timeline, honest source/proof reads and auth-guarded failure/reset controls. Exact hash/version/policy checks; server-derived reviewer identity. API never PATCHes custodian. |
-| Worker | Separate real process, five-second Atlas lease/one-second heartbeat, persisted investigation phases, live pre-send checks, majority+j intent, hard exit 137 injections, receipt+instruction verification, bounded same-key confirmed-absence retry, manual-review guards. |
+| Worker | Scoped multi-case scan plus verified-learning outbox publication. Separate real process, five-second Atlas lease/one-second heartbeat, persisted investigation phases, live pre-send checks, majority+j intent, hard exit 137 injections, receipt+instruction verification, bounded same-key confirmed-absence retry, manual-review guards. |
 | Directory adaptation | Real mid-run pause then v1→v2; Voyage/Atlas retrieval returns INC-004 (~0.85 in browser); actual guided `/contract` read selects validated v2 adapter. Unknown/conflicting schema stops. |
-| Frontend | React/Vite console on localhost:3000, preserved existing visual workbench, wired all actions. Real market context, proposal/hash/reviewer, actual tool/precedent/timeline, process heartbeat and independent proof counters. |
-| Atlas | Organizer Agents in Context Toronto, project 6af899b4fb07f6aa867aa481, existing Cluster0. Runtime/setup scoped users connect. Cases/incidents/policies/workers plus new case_runs + market_fail_observations. Existing vector index READY, 9 verified real vectors. |
-| Reset | Stops local tracked worker; server lease also refuses active workers. Archives previous case run, rotates runId, resets fictional stores, preserves all public data/policy/incident vectors. |
+| Frontend | Redesigned as a four-step operational workflow on localhost:3000. One active task, business-language checks/actions, exact correction review, confirmation receipt, contextual public data; technical evidence disclosed on demand and scenario controls isolated in a native modal drawer. |
+| Atlas | Organizer Agents in Context Toronto, project 6af899b4fb07f6aa867aa481, existing Cluster0. Runtime/setup scoped users connect. Cases/incidents/policies/workers plus new case_runs + market_fail_observations. Existing vector index READY, 9 verified seed vectors plus dynamically learned verified outcomes. |
+| Reset | Archives/resets all 4 synthetic queue cases, preserving learned experience. Stops local tracked worker; server lease also refuses active workers. Archives previous case run, rotates runId, resets fictional stores, preserves all public data/policy/incident vectors. |
 | Tests | All 66 passed:49 offline +8 Atlas foundation +9 real-process workflow. Both crash windows, stable operation, one receipt/PATCH, denial/stale/wrong hash, mapping revision drift, unknown schema, trade mismatch, no-action, unavailable reads and reset guard. Frontend build/Ruff/format/whitespace passed. |
 | Browser rehearsal | Actual buttons completed start→pause→v2→real retrieval→approval→lost reply + worker exit 137→restart→VERIFIED. One receipt/one PATCH, new worker ID. Rehearsal archived and fresh NEW case prepared. |
 | Team access | Three specified groupmates invited with Project Data Access Read/Write in organizer project. Driver credentials and per-machine IP access remain separate. |
@@ -65,9 +67,10 @@ Repo root, separate terminals:
 ```
 
 Sign in at http://localhost:3000 with root .env DEMO_REVIEWER_TOKEN value, without surrounding quotes.
-Default fresh run has directory v1, pause-before-directory ON, crash/fault flags OFF. To show actual
-adaptation, Start first, wait for pause, switch to v2, Continue. Then approve, arm lost reply + crash on
-unknown, Apply, wait for real process exit, restart worker. Main demo must show VERIFIED with one receipt,
+Default fresh run uses Original format, account-check pause ON, and other demo flags OFF. Start
+reconciliation, wait for the account-check pause, open Demo controls and select Updated format, then
+close and Continue reconciliation. Approve correction, open Demo controls to delay confirmation and
+interrupt after submission, close, Apply approved correction, wait for actual exit, restart the worker. Main demo must show VERIFIED with one receipt,
 one PATCH and different saved/resumed worker IDs. See demo-script.md for presenter timings.
 
 New machine: supply local credentials/IP access then
@@ -173,3 +176,48 @@ policy. The real public dataset does not supply per-trade causes or final settle
   reproduced adaptation→approval→lost reply→worker 71012 exit 137→worker 75102 VERIFIED, one receipt/one PATCH,
   rev 2/SAFE-401; archived rehearsal and reset fresh case. Updated CLAUDE.md, README and every docs file.
   Local app credentials generated in ignored .env without printing; no commit/push or paid provisioning.
+
+- **2026-11-14 — Operational workflow redesign (Codex).** User requested an action-oriented financial
+  workflow and nontechnical terminology. Defined Track3 problem in problem-statement.md, with precise
+  distinctions from Track1/2. Rebuilt the frontend as one stage-driven case with four-step rail, exception
+  document, reconciliation checklist, account-change approval and custodian confirmation receipt.
+  Added business labels/errors, persistent trade context, collapsed source/audit evidence and native
+  modal Demo controls. Kept all actual HTTP/version/hash/policy/checkpoint semantics; no backend changes.
+  Updated CLAUDE.md, README and all docs. Validation and final rehearsal results recorded below.
+
+  Validation: production TypeScript/Vite build passed; git whitespace check passed. Real redesigned UI
+  rehearsal completed start→pause→Updated format→live retrieval→approval→delayed reply→exit 137→restart→
+  Correction confirmed, with 1 recorded correction/1 submission. New worker used the saved operation.
+  Verified 390px layout (pageWidth=viewportWidth=390), modal controls and Escape/focus return; restored
+  normal viewport. Archived successful run and left a fresh NEW case with service running. Backend
+  contracts unchanged; earlier 66-test suite evidence remains applicable, not presented as a new rerun.
+  Redesign changes are uncommitted on feat/proofstep-tradeops-demo.
+
+- **2026-11-14 — Multi-case workflow and verified learning (Codex).** Added four independent fictional
+  instructions/trades and actionable queue. Follow-up becomes available after first VERIFIED+STORED,
+  enforced by API as well as UI. Added scoped case controls/proof, multi-case worker scan, all-case reset
+  archive and test fixture isolation. Verification atomically records a pending learning outbox; worker
+  revalidates proof, embeds/upserts stable learned incident with source run/receipt/hash provenance.
+  Actual scoped Atlas retrieval changes the next investigation to live-contract-first; no copied
+  account or approval. Added provider backoff and query-vector cache after real Voyage 429 in repeated
+  tests. Added visible independent directory reference and80-vs-800 conflict explanation. Browser
+  NO_ACTION/manual-review paths passed. Automated two-case real retrieval test passed; 55 offline and 8
+  Atlas foundation checks passed. Original 9 workflow regressions passed before final cache/backoff;
+  final learning/availability rehearsal and validation are recorded below. Docs updated throughout.
+
+- **2026-11-14 — Product framing correction (user).** TradeOps is the demonstrated financial software;
+  ProofStep is the architecture/methodology implemented as its control layer to solve Track3. Updated
+  primary UI/browser brand to TradeOps and kept ProofStep in secondary control evidence and docs.
+  This steering is part of the ongoing multi-case/learning implementation, not a replacement task.
+
+  Final validation: 55 offline tests and 8 Atlas foundation tests passed. The final real-process learning
+  test passed in 40s, including verified publication, real scoped retrieval, authenticated publication
+  retry without an extra correction, distinct follow-up approval/operation/receipt, and one submission
+  per case. Earlier 9 workflow regressions also passed; the complete suite was not rerun as one batch
+  after provider-backoff changes. Production TypeScript/Vite, Ruff/format and whitespace checks passed.
+  Browser TradeOps SI-2041 reached VERIFIED+STORED; SI-2042 actually retrieved that incident (score 0.859),
+  read live contract before its first account lookup, and is left AWAITING_APPROVAL with zero submissions.
+  SI-2043 is NO_ACTION and SI-2044 MANUAL_REVIEW, each with zero submissions/corrections. Premature
+  follow-up API start returned 409 EXPERIENCE_NOT_READY. Main brand/browser title TradeOps, ProofStep
+  retained as secondary architecture/control-layer attribution. Final screen saved and left open;
+  current services and worker running. All changes remain uncommitted on feat/proofstep-tradeops-demo.

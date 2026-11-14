@@ -14,5 +14,53 @@
     "symbol": "TTE",
     "cusip": "F92124100",
     "settlementDate": "2026-09-15"
+  },
+  {
+    "instructionId": "SI-2042",
+    "tradeId": "TR-2042",
+    "portfolioId": "P-17",
+    "side": "BUY",
+    "security": "TTE",
+    "quantity": 150,
+    "revision": 1,
+    "safekeepingAccount": "SAFE-100",
+    "status": "REJECTED",
+    "rejectionReason": "INVALID_SAFEKEEPING_ACCOUNT",
+    "rejectionNote": "Receiving safekeeping account SAFE-100 is not open for delivery at this custodian. Instruction cannot be matched. Amend the receiving account and resubmit.",
+    "symbol": "TTE",
+    "cusip": "F92124100",
+    "settlementDate": "2026-09-15"
+  },
+  {
+    "instructionId": "SI-2043",
+    "tradeId": "TR-2043",
+    "portfolioId": "P-17",
+    "side": "BUY",
+    "security": "TTE",
+    "quantity": 75,
+    "revision": 1,
+    "safekeepingAccount": "SAFE-401",
+    "status": "ACCEPTED",
+    "rejectionReason": null,
+    "rejectionNote": null,
+    "symbol": "TTE",
+    "cusip": "F92124100",
+    "settlementDate": "2026-09-15"
+  },
+  {
+    "instructionId": "SI-2044",
+    "tradeId": "TR-2044",
+    "portfolioId": "P-17",
+    "side": "BUY",
+    "security": "TTE",
+    "quantity": 800,
+    "revision": 1,
+    "safekeepingAccount": "SAFE-100",
+    "status": "REJECTED",
+    "rejectionReason": "INVALID_SAFEKEEPING_ACCOUNT",
+    "rejectionNote": "Receiving safekeeping account SAFE-100 is not open for delivery at this custodian. Instruction cannot be matched. Amend the receiving account and resubmit.",
+    "symbol": "TTE",
+    "cusip": "F92124100",
+    "settlementDate": "2026-09-15"
   }
 ]

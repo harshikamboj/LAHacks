@@ -47,6 +47,8 @@ def load_fixture(name: str) -> Any:
         value = json.load(fh)
     # Integration tests use unique synthetic IDs and their own simulator databases.
     if name in {"trades.json", "instructions.json"}:
+        if os.getenv("DEMO_CASE_ID") or os.getenv("DEMO_TRADE_ID"):
+            value = value[:1]
         for row in value:
             row["tradeId"] = os.getenv("DEMO_TRADE_ID", row["tradeId"])
             if "instructionId" in row:

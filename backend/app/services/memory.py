@@ -2,12 +2,14 @@
 
 import hashlib
 import math
+import time
 
 import httpx
 from pymongo.errors import PyMongoError
 from pymongo.read_concern import ReadConcern
 
 from app.config import Settings
+from app.db import utcnow
 from app.schema import DIMENSIONS
 
 NEXT_CHECKS = {
@@ -86,6 +88,8 @@ class IncidentMemory:
     def __init__(self, db, settings: Settings, *, embeddings=None):
         self.db, self.settings = db, settings
         self.embeddings = embeddings or VoyageEmbeddings(settings)
+        self.query_vectors = {}
+        self.query_retry_at = 0.0
 
     def status(self) -> dict:
         if not self.settings.memory_enabled:
@@ -123,7 +127,16 @@ class IncidentMemory:
                 result["status"] = "DISABLED"
             return result
         try:
-            vector = self.embeddings.embed([query], input_type="query")[0]
+            cached = self.query_vectors.get(query)
+            if cached and time.monotonic() - cached[0] < 600:
+                vector = cached[1]
+            else:
+                if time.monotonic() < self.query_retry_at:
+                    raise EmbeddingUnavailable("VOYAGE_RATE_LIMIT_RETRY_PENDING")
+                vector = self.embeddings.embed([query], input_type="query")[0]
+                if len(self.query_vectors) >= 32:
+                    self.query_vectors.clear()
+                self.query_vectors[query] = (time.monotonic(), vector)
             filters = {
                 "disposition": {"$eq": "VERIFIED"},
                 "synthetic": {"$eq": True},
@@ -156,6 +169,12 @@ class IncidentMemory:
                                 "suggestedNextCheck": 1,
                                 "source": 1,
                                 "disposition": 1,
+                                "learnedFromCaseId": 1,
+                                "createdAt": 1,
+                                "learnedFromRunId": 1,
+                                "learningScope": 1,
+                                "portfolioId": 1,
+                                "verifiedReceiptId": 1,
                                 "score": {"$meta": "vectorSearchScore"},
                             }
                         },
@@ -174,7 +193,73 @@ class IncidentMemory:
                 "matches": matches,
             }
         except EmbeddingUnavailable as exc:
+            if str(exc) == "VOYAGE_HTTP_429":
+                self.query_retry_at = time.monotonic() + 60
             result["reason"] = str(exc)
         except PyMongoError:
             result["reason"] = "ATLAS_VECTOR_QUERY_UNAVAILABLE"
         return result
+
+    def learn_verified(self, case: dict) -> dict:
+        """Publish only independently verified effects. Stable ID makes restart/retry idempotent."""
+        verification = case.get("verification", {})
+        receipt = verification.get("receipt", {})
+        instruction = verification.get("instruction", {})
+        operation = case.get("operation", {})
+        if (
+            case.get("stage") != "VERIFIED"
+            or not receipt.get("receiptId")
+            or receipt.get("operationId") != operation.get("operationId")
+            or receipt.get("payloadHash") != operation.get("payloadHash")
+            or instruction.get("latestOperationId") != operation.get("operationId")
+            or instruction.get("status") != "ACCEPTED"
+            or instruction.get("safekeepingAccount") != case["proposal"]["newAccount"]
+        ):
+            raise ValueError("Only matching independent verification can become experience")
+        incident_id = "INC-LEARN-" + case["caseId"] + "-" + case["runId"]
+        previous = self.db.incidents.find_one({"incidentId": incident_id})
+        if (
+            previous
+            and previous.get("embeddingModel") == self.settings.voyage_model
+            and previous.get("embedding")
+        ):
+            return {"incidentId": incident_id, "status": "STORED"}
+        if not self.settings.memory_enabled:
+            raise EmbeddingUnavailable("MEMORY_ENABLED_FALSE")
+        incident = {
+            "incidentId": incident_id,
+            "synthetic": True,
+            "disposition": "VERIFIED",
+            "source": "directory:" + self.settings.demo_case_id,
+            "title": "Verified receiving-account reconciliation",
+            "symptom": "Retired receiving account; invalid safekeeping account; "
+            "current receiving account mapping requires validation.",
+            "verifiedResolution": (
+                "Inspect the live directory contract before reading the receiving account. "
+                "Validate the supported format, current account ownership and authorization. "
+                "Get fresh exact approval, persist intent, and independently verify "
+                "the custodian receipt and instruction."
+            ),
+            "suggestedNextCheck": "GET_DIRECTORY_CONTRACT",
+            "learnedFromCaseId": case["caseId"],
+            "learnedFromRunId": case["runId"],
+            "learningScope": case.get("demoOwner", self.settings.demo_case_id),
+            "portfolioId": case["portfolioId"],
+            "verifiedReceiptId": receipt["receiptId"],
+            "verifiedOperationId": operation["operationId"],
+            "verifiedPayloadHash": operation["payloadHash"],
+            "verifiedAccount": instruction["safekeepingAccount"],
+            "createdAt": utcnow(),
+        }
+        vector = self.embeddings.embed([incident_text(incident)], input_type="document")[0]
+        incident.update(
+            embedding=vector,
+            embeddingModel=self.settings.voyage_model,
+            embeddingDimensions=DIMENSIONS,
+            embeddingTextHash=text_hash(incident_text(incident)),
+            embeddedAt=utcnow(),
+        )
+        self.db.incidents.update_one(
+            {"incidentId": incident_id, "synthetic": True}, {"$setOnInsert": incident}, upsert=True
+        )
+        return {"incidentId": incident_id, "status": "STORED"}

@@ -161,3 +161,39 @@ interrupted. Never reset during an execution or describe it as production transa
 with actual exit 137 both after external commit and before send. Isolated test IDs/ports/SQLite files
 preserve canonical data. Browser rehearsal verified the same main path through real controls.
 See demo-script.md and mongodb-setup.md for operation and evidence.
+
+## 8. Operational frontend
+
+The frontend now renders a stage-driven reconciliation workspace instead of a grid of monitoring panels.
+The left rail shows four lifecycle steps; the central workspace shows the current exception, read-only
+reconciliation checks, exact approval, or confirmation receipt. Trade context remains visible throughout.
+`lib/presentation.ts` translates stages, tools, events and errors into business terminology without
+changing API contracts. Current-version and proposal-hash arguments are still sent on approval/execution.
+
+The native modal Demo controls drawer isolates scenario injection from the operator's task, supports
+Escape/Close and traps focus through the browser dialog. Supporting records and technical audit/approval/
+verification evidence use disclosure elements. Public context appears after the real lookup. Live-read
+failures warn about stale records; signed-out/stale-case actions are disabled. A repeated idempotent
+submission is distinguished from a single submission in the confirmation receipt.
+
+## 9. Work queue and learned procedures
+
+See learning-demo.md for the four-case lifecycle and exact memory/retrieval semantics. `scenarios.py`
+defines canonical queue membership; reset archives all 4 cases and creates fresh run IDs with demoOwner
+and demoBatchId metadata. Test fixture overrides retain only the first record, with unique test IDs.
+Worker holds one configured scope lease and scans its cases, including VERIFIED learning outboxes.
+Frontend remounts its workspace on selection, scopes every action/read and returns to the work queue.
+The similar follow-up requires canonical first case VERIFIED and learning STORED before /start.
+
+Independent verification saves learning={status:PENDING,attempts:0} atomically with VERIFIED. Publishing
+requires matching receipt/hash/instruction evidence, uses stable per-case/run incident ID and real
+Voyage document embedding, and is idempotent on restart. Namespaced indexed source directory:<owner>
+pre-filters learned Vector Search; portfolio/model/disposition/provenance and minimum 0.70 score constrain
+reuse. A retrieved verified procedure changes the actual next tool to contract-first. Live account and
+fresh exact approval remain authoritative. Pending provider/index states are explicit and bounded;
+query vectors (not match results) cache for 10 minutes. No new vector index or privileged Atlas role needed.
+
+Product framing: **TradeOps** is the financial application and the name shown in its interface.
+**ProofStep** is the control-layer architecture/methodology implemented over the TradeOps workflow.
+Present the TradeOps case lifecycle, then explain how the ProofStep layer provides durable intent,
+policy/approval gates, recovery, verified completion and reusable verified experience for Track3.

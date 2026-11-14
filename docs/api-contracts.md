@@ -152,3 +152,36 @@ EXECUTION_REQUESTED, INTENT_PERSISTED, PATCH_SENT, ACK_RECEIVED/OUTCOME_UNKNOWN,
 RESUMED_FROM_CHECKPOINT, RETRY_SAME_KEY, VERIFICATION_DEFERRED, VERIFIED, NO_ACTION, MANUAL_REVIEW,
 FAULT_CONFIGURED. The deliberate hard crash saves neither ACK nor UNKNOWN; recovery relies on intent.
 Tool details persist in investigation.steps including request, evidenceId, timing and actual guidedBy.
+
+## 8. Frontend business labels
+
+The operational redesign changes presentation only; HTTP routes, version/hash guards and worker authority
+are preserved. Start reconciliation calls /start, Approve correction calls /decision(APPROVE), Decline
+calls /decision(DENY), Apply approved correction calls /execute. Continue reconciliation clears the demo
+pause. Demo controls uses Updated format for directory version2, confirmation delay for lostResponse,
+and Interrupt processing after submission for crashWorkerOnUnknown. Diagnostics retain raw API evidence
+only behind disclosures. Human-facing errors translate API codes without suppressing backend failures.
+
+## 9. Multi-case contract extension
+
+GET /api/cases lists only the configured demo scope in caseId order. Each case may include title,
+scenarioKind,demoOwner,demoBatchId,learning and investigation.reusedExperience. GET detail and POST
+start/decision/execute use the selected caseId; unrelated synthetic scopes return404. Similar follow-up
+/start requires the first case VERIFIED + learning STORED, otherwise409 EXPERIENCE_NOT_READY.
+
+GET /api/demo/state and /api/demo/custodian-proof accept optional caseId query parameter (default
+configured canonical case). POST /api/demo/faults accepts optional caseId in the body. The worker-fault
+flags are per-case; custodian/network and directory-format injections are simulator-wide presenter
+controls. Present one scenario at a time. Reset archives all 4 default cases, with one scoped case in
+isolated test configurations. Events add EXPERIENCE_CHECKED, EXPERIENCE_LOOKUP_PENDING,
+EXPERIENCE_REUSED, EXPERIENCE_SAVED and EXPERIENCE_PENDING. Memory publication never grants approval.
+
+Product framing: **TradeOps** is the financial application and the name shown in its interface.
+**ProofStep** is the control-layer architecture/methodology implemented over the TradeOps workflow.
+Present the TradeOps case lifecycle, then explain how the ProofStep layer provides durable intent,
+policy/approval gates, recovery, verified completion and reusable verified experience for Track3.
+
+A VERIFIED case whose learning publication exhausted3 attempts can POST
+/api/cases/{caseId}/learning/retry with {version}. Reviewer auth and version guards apply; it resets
+only the learning outbox, never executes the custodian operation again. Stored or still-processing
+experience returns409. UI label: Retry saving experience.

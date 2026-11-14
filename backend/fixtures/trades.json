@@ -12,5 +12,47 @@
     "symbol": "TTE",
     "cusip": "F92124100",
     "settlementDate": "2026-09-15"
+  },
+  {
+    "tradeId": "TR-2042",
+    "portfolioId": "P-17",
+    "side": "BUY",
+    "security": "TTE",
+    "quantity": 150,
+    "price": "91.20",
+    "currency": "USD",
+    "status": "EXECUTED",
+    "executedAt": "2026-09-14T19:42:10Z",
+    "symbol": "TTE",
+    "cusip": "F92124100",
+    "settlementDate": "2026-09-15"
+  },
+  {
+    "tradeId": "TR-2043",
+    "portfolioId": "P-17",
+    "side": "BUY",
+    "security": "TTE",
+    "quantity": 75,
+    "price": "91.20",
+    "currency": "USD",
+    "status": "EXECUTED",
+    "executedAt": "2026-09-14T19:42:10Z",
+    "symbol": "TTE",
+    "cusip": "F92124100",
+    "settlementDate": "2026-09-15"
+  },
+  {
+    "tradeId": "TR-2044",
+    "portfolioId": "P-17",
+    "side": "BUY",
+    "security": "TTE",
+    "quantity": 80,
+    "price": "91.20",
+    "currency": "USD",
+    "status": "EXECUTED",
+    "executedAt": "2026-09-14T19:42:10Z",
+    "symbol": "TTE",
+    "cusip": "F92124100",
+    "settlementDate": "2026-09-15"
   }
 ]

@@ -6,19 +6,24 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.auth import reviewer
+from app.config import get_settings
 from app.db import CaseStore, utcnow
 from app.errors import ApiError
 from app.hashing import proposal_hash
 from app.models import Stage, bson_public
 from app.routes.health import worker_status
 from app.runtime import database
+from app.scenarios import scope_filter
 
 router = APIRouter(prefix="/cases")
 
 
 def get_case(case_id: str) -> dict:
     case = CaseStore(database()).get(case_id)
-    if not case:
+    if not case or (
+        case["caseId"] != get_settings().demo_case_id
+        and case.get("demoOwner") != get_settings().demo_case_id
+    ):
         raise ApiError(404, "CASE_NOT_FOUND", "Initialize or reset the demo first")
     return case
 
@@ -64,7 +69,13 @@ def transition(case, body, stage, event, actor, fields=None):
 
 @router.get("")
 def list_cases():
-    return bson_public(list(database().cases.find({"synthetic": True}, {"_id": 0})))
+    return bson_public(
+        list(
+            database()
+            .cases.find({"synthetic": True, **scope_filter(get_settings())}, {"_id": 0})
+            .sort("caseId", 1)
+        )
+    )
 
 
 @router.get("/{case_id}")
@@ -81,6 +92,17 @@ def timeline(case_id: str):
 @router.post("/{case_id}/investigate")
 def start(case_id: str, body: VersionBody, actor=Depends(reviewer)):
     case = get_case(case_id)
+    if case.get("scenarioKind") == "similar_exception":
+        previous = CaseStore(database()).get(get_settings().demo_case_id) or {}
+        if (
+            previous.get("stage") != Stage.VERIFIED
+            or previous.get("learning", {}).get("status") != "STORED"
+        ):
+            raise ApiError(
+                409,
+                "EXPERIENCE_NOT_READY",
+                "Complete the first correction and wait for verified experience to save",
+            )
     if case["stage"] != Stage.NEW:
         raise ApiError(409, "STAGE_CONFLICT", "Investigation already started")
     return transition(
@@ -135,4 +157,25 @@ def execute(case_id: str, body: VersionBody, actor=Depends(reviewer)):
         "EXECUTION_REQUESTED",
         "reviewer:" + actor["reviewerId"],
         {"executionRequested": True},
+    )
+
+
+@router.post("/{case_id}/learning/retry")
+def retry_learning(case_id: str, body: VersionBody, actor=Depends(reviewer)):
+    case = get_case(case_id)
+    if (
+        case["stage"] != Stage.VERIFIED
+        or case.get("learning", {}).get("status") != "PENDING"
+        or case.get("learning", {}).get("attempts", 0) < 3
+    ):
+        raise ApiError(
+            409, "STAGE_CONFLICT", "Experience is already saved or still being processed"
+        )
+    return transition(
+        case,
+        body,
+        Stage.VERIFIED,
+        "EXPERIENCE_RETRY_REQUESTED",
+        "reviewer:" + actor["reviewerId"],
+        {"learning": {"status": "PENDING", "attempts": 0}},
     )

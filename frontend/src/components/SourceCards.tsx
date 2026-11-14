@@ -1,67 +1,15 @@
 import type { Sources } from "../lib/api";
-import { Card, Empty, Field, Pill, time } from "./ui";
-
-function Meta({ request, fetchedAt }: { request: string | null; fetchedAt: string }) {
-  return <p className="meta mono">{request ?? "no request"} · read {time(fetchedAt)}</p>;
-}
+import { time } from "./ui";
 
 export function SourceCards({ sources, error }: { sources: Sources | null; error: string | null }) {
-  if (!sources) {
-    return <div className="grid-3"><Card title="Sources of truth"><Empty>{error ?? "Reading the three systems…"}</Empty></Card></div>;
-  }
-  const { broker, directory, custodian } = sources;
-  const t = broker.data;
-  const i = custodian.data;
-  const baseline = directory.baselineAccountStatus;
-  return (
-    <div className="grid-3">
-      <Card title="Broker" aside={<Pill tone="muted">simulated</Pill>}>
-        <p className="role">Owns the executed trade</p>
-        {t ? (
-          <dl>
-            <Field label="Trade">{t.tradeId}</Field>
-            <Field label="CUSIP / date">{t.cusip} · {t.settlementDate}</Field>
-            <Field label="Order">{t.side} {t.quantity} {t.security} @ {t.currency} {t.price}</Field>
-            <Field label="Status"><Pill tone={t.status === "EXECUTED" ? "ok" : "warn"}>{t.status}</Pill></Field>
-          </dl>
-        ) : <Empty>{broker.error}</Empty>}
-        <Meta request={broker.request} fetchedAt={broker.fetchedAt} />
-      </Card>
-
-      <Card title="Account directory" aside={<Pill tone="muted">simulated</Pill>}>
-        <p className="role">Owns the current receiving account</p>
-        {directory.ok ? (
-          <>
-            <dl>
-              <Field label="Contract">v{directory.contract?.version ?? "?"} · {directory.contract?.accountPath}</Field>
-              {baseline && (
-                <Field label={baseline.accountId}>
-                  <Pill tone={baseline.status === "RETIRED" ? "bad" : "ok"}>{baseline.status}</Pill>
-                </Field>
-              )}
-            </dl>
-            <details>
-              <summary>Live response (shape changes with the contract)</summary>
-              <pre>{JSON.stringify(directory.data, null, 2)}</pre>
-            </details>
-          </>
-        ) : <Empty>{directory.error}</Empty>}
-        <Meta request={directory.request} fetchedAt={directory.fetchedAt} />
-      </Card>
-
-      <Card title="Custodian" aside={<Pill tone="muted">simulated</Pill>}>
-        <p className="role">Owns the instruction and the receipt</p>
-        {i ? (
-          <dl>
-            <Field label="Instruction">{i.instructionId} · rev {i.revision}</Field>
-            <Field label="Account">{i.safekeepingAccount}</Field>
-            <Field label="Status"><Pill tone={i.status === "ACCEPTED" ? "ok" : "bad"}>{i.status}</Pill></Field>
-            {i.status === "REJECTED" && <Field label="Reason" mono={false}>{i.rejectionReason}</Field>}
-            {i.latestOperationId && <Field label="Operation">{i.latestOperationId}</Field>}
-          </dl>
-        ) : <Empty>{custodian.error}</Empty>}
-        <Meta request={custodian.request} fetchedAt={custodian.fetchedAt} />
-      </Card>
-    </div>
-  );
+  return <details className="supporting-records">
+    <summary>Review supporting records <span>Broker, account directory and custodian</span></summary>
+    {error && sources && <p role="alert" className="notice warning">Live records could not be refreshed. The records below were read earlier and may be out of date.</p>}
+    {!sources ? <p className="muted">{error ? "Supporting records are temporarily unavailable." : "Reading supporting records…"}</p> : <>
+      <div className="record-row"><div><strong>Executed trade</strong><small>Broker · read {time(sources.broker.fetchedAt)}</small></div><p>{sources.broker.data ? `${sources.broker.data.side === "BUY" ? "Buy" : sources.broker.data.side} ${sources.broker.data.quantity} ${sources.broker.data.security} · ${sources.broker.data.status === "EXECUTED" ? "Trade executed" : sources.broker.data.status}` : "Broker record unavailable"}</p></div>
+      <div className="record-row"><div><strong>Receiving-account directory</strong><small>Directory · read {time(sources.directory.fetchedAt)}</small></div><p>{sources.directory.ok ? `Account format ${sources.directory.contract?.version ?? "—"} · ${sources.directory.baselineAccountStatus?.accountId ?? "Account"} ${sources.directory.baselineAccountStatus?.status === "RETIRED" ? "retired" : sources.directory.baselineAccountStatus?.status === "ACTIVE" ? "active" : "status unavailable"}` : "Directory record unavailable"}</p></div>
+      <div className="record-row"><div><strong>Settlement instruction</strong><small>Custodian · read {time(sources.custodian.fetchedAt)}</small></div><p>{sources.custodian.data ? `${sources.custodian.data.safekeepingAccount} · ${sources.custodian.data.status === "ACCEPTED" ? "Accepted for processing" : "Rejected"} · revision ${sources.custodian.data.revision}` : "Custodian record unavailable"}</p></div>
+      <details className="technical"><summary>Technical source evidence</summary><pre>{JSON.stringify(sources, null, 2)}</pre></details>
+    </>}
+  </details>;
 }

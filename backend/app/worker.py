@@ -12,6 +12,7 @@ from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from app.config import REPO_ROOT, Settings
 from app.db import create_client, get_database, utcnow
+from app.scenarios import scope_filter
 from app.services.workflow import Workflow
 
 
@@ -94,20 +95,41 @@ def main():
         print(f"{worker_id}: online; resuming saved case stages (no history replay)", flush=True)
         try:
             while not stop.is_set():
-                case = db.cases.find_one(
+                active = db.cases.find(
                     {
-                        "caseId": settings.demo_case_id,
                         "synthetic": True,
-                        "stage": {"$in": ["INVESTIGATING", "APPROVED", "AWAITING_VERIFICATION"]},
+                        **scope_filter(settings),
+                        "$and": [
+                            {
+                                "$or": [
+                                    {
+                                        "stage": {
+                                            "$in": [
+                                                "INVESTIGATING",
+                                                "APPROVED",
+                                                "AWAITING_VERIFICATION",
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "stage": "VERIFIED",
+                                        "learning.status": "PENDING",
+                                        "learning.attempts": {"$lt": 3},
+                                    },
+                                ]
+                            }
+                        ],
                     },
                     {"_id": 0},
                 )
-                if case and owns_lease():
+                for case in active:
+                    if stop.is_set() or not owns_lease():
+                        break
                     updated = engine.step(case)
                     if updated:
                         print(
-                            f"{worker_id}: {updated['stage']} v{updated['version']} "
-                            f"{updated['events'][-1]['type']}",
+                            f"{worker_id}: {updated['caseId']} {updated['stage']} "
+                            f"v{updated['version']} {updated['events'][-1]['type']}",
                             flush=True,
                         )
                 stop.wait(settings.worker_poll_seconds)

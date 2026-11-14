@@ -63,3 +63,32 @@ Compatibility: existing `cases.caseId/runId/operation/events` implement handoff
 `instructionId/demoRunId/intent/timeline` (API aliases provided); existing `workers` holds heartbeat/lease;
 `case_runs` retains history; existing `incident_vector_index`, INC-004 and `AMEND_SAFEKEEPING_ACCOUNT` names
 are preserved. Do not rename established contracts just to match example labels in the handoff.
+
+## Operational frontend (2026-11-14 redesign)
+
+The user explicitly rejected dashboard-style monitoring and raw API terminology in the main flow.
+Keep a four-step case lifecycle with a single active workspace, persistent trade context and one next
+action: Review exception → Reconcile records → Authorize correction → Confirm completion.
+`frontend/src/lib/presentation.ts` maps backend stage/tool/event names into business language.
+Hashes, request names and worker IDs belong in expandable evidence; scenario controls belong in the
+native modal Demo controls drawer. Maintain actual version/hash approvals and error/manual-review states.
+`docs/problem-statement.md` defines Track3 as the primary challenge; audit/memory are supporting mechanisms.
+
+## Multi-case and verified learning
+
+Read docs/learning-demo.md. Reset now seeds SI-2041..2044: account correction, similar follow-up,
+already accepted and quantity conflict. Only the canonical default scope gets all 4; isolated test
+DEMO_CASE_ID/TRADE_ID overrides retain one fixture record. Worker scans its configured demoOwner scope;
+case/source/proof/fault clients must use the selected case ID. Never use a global frontend case ID for
+another case's decision. Follow-up requires first case VERIFIED + learning STORED, enforced in API.
+
+VERIFIED atomically creates a PENDING learning outbox. Worker rechecks independent verification, writes
+one stable learned incident per case/run with real Voyage embedding, then marks STORED. Failed/denied/
+NO_ACTION/merely-ACKed cases cannot teach a successful amendment. Actual Vector Search over scoped
+source directory:<demoOwner> guides a proactive live contract read; fresh account validation, hash-bound
+approval and pre-send checks remain mandatory. Preserve learned incidents on reset. See docs for bounded
+provider backoff/query-vector cache. Never substitute exact Mongo lookups or seeded labels for retrieval.
+
+Branding correction from user: UI/browser title/main brand must be TradeOps. ProofStep names the
+underlying architecture/methodology/control layer, not the financial app. Keep it in supporting
+evidence/footer/presentation explanations. Do not revert the main brand to ProofStep.

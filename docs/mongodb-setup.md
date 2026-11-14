@@ -160,3 +160,28 @@ new run. Frontend production build and backend static checks also pass.
 Guarantee boundary: Atlas provides durable intent and state guards. The independent custodian simulator
 provides transactional idempotency and authoritative receipts. Both are required for the demonstrated
 exactly-once business effect; ACCEPTED is not final securities settlement.
+
+## Operational UI evidence locations
+
+In the redesigned workflow, Atlas still stores all case state, incident retrieval and market context.
+The main receipt calls receiptCount “Recorded corrections” and patchRequestCount “Submissions received”.
+Expand Inspect verification evidence to inspect operation/checkpoint recovery identifiers; Case activity →
+Technical audit record shows the actual retrieved incident, score and guided contract read. Raw source
+requests remain under Review supporting records → Technical source evidence. No new Atlas permissions,
+indexes or collections are required for this presentation change. Track positioning is in problem-statement.md.
+
+## Learned experience and multiple cases
+
+Current reset seeds4 active cases rather than 1, each with separate IDs/run/operation/approval/proof.
+Existing case_runs preserves each prior case run. The 9 seeded incident vectors remain; actual verified
+case outcomes add dynamic INC-LEARN-* documents. See learning-demo.md for stored provenance and outbox.
+Learned source names directory:<demoOwner> use the existing source filter field, so no index rebuild or
+new permissions are required. Verified learned results may outrank INC-004; standalone strict verification
+now checks that the highest result suggests GET_DIRECTORY_CONTRACT, rather than pinning a fixture ID.
+Scoped live tests clean their own learned incidents. Reset preserves learned memory and all 66,693 public
+observations. Provider429/index warm-up remain honest pending states with bounded retry.
+
+Product framing: **TradeOps** is the financial application and the name shown in its interface.
+**ProofStep** is the control-layer architecture/methodology implemented over the TradeOps workflow.
+Present the TradeOps case lifecycle, then explain how the ProofStep layer provides durable intent,
+policy/approval gates, recovery, verified completion and reusable verified experience for Track3.

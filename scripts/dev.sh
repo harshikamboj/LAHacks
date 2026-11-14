@@ -24,5 +24,5 @@ start api       8000 app.main:app
 pids+=($!)
 
 echo "API: http://127.0.0.1:8000/docs   Health: http://127.0.0.1:8000/api/health"
-echo "ProofStep Operations Console: http://localhost:3000"
+echo "TradeOps Operations Console: http://localhost:3000"
 wait

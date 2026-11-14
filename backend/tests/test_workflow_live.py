@@ -189,6 +189,7 @@ class Stack:
                 process.wait(timeout=20)
         self.db.cases.delete_one({"caseId": self.case_id, "synthetic": True})
         self.db.case_runs.delete_many({"caseId": self.case_id, "synthetic": True})
+        self.db.incidents.delete_many({"learningScope": self.case_id, "synthetic": True})
         self.db.workers.delete_one({"_id": f"worker-{self.case_id}"})
         self.client.close()
         self.mongo.close()
@@ -335,4 +336,127 @@ def test_reset_requires_worker_stopped_and_preserves_market_and_memory(stack):
     assert r.status_code == 409
     stack.reset()
     assert stack.db.market_fail_observations.count_documents({}) == 66693
-    assert stack.db.incidents.count_documents({"disposition": "VERIFIED"}) == 9
+    assert (
+        stack.db.incidents.count_documents(
+            {"disposition": "VERIFIED", "learnedFromCaseId": {"$exists": False}}
+        )
+        == 9
+    )
+
+
+def test_verified_result_becomes_real_memory_for_a_distinct_case(stack):
+    from app.db import CaseStore
+
+    stack.reset()
+    stack.start()
+    stack.approve()
+    stack.execute()
+    stack.wait("VERIFIED")
+    end = time.monotonic() + 150
+    while stack.case().get("learning", {}).get("status") != "STORED":
+        assert time.monotonic() < end, {
+            "learning": stack.case().get("learning"),
+            "logs": stack.log_tail(),
+        }
+        time.sleep(0.2)
+    stored_case = stack.case()
+    retry_url = f"/api/cases/{stack.case_id}/learning/retry"
+    assert stack.client.post(retry_url, json={"version": stored_case["version"]}).status_code == 409
+    # Exhausted publication may be retried without executing another custodian amendment.
+    stack.stop_worker()
+    stack.db.cases.update_one(
+        {"caseId": stack.case_id},
+        {"$set": {"learning": {"status": "PENDING", "attempts": 3, "reason": "VOYAGE_HTTP_429"}}},
+    )
+    retried = stack.client.post(retry_url, json={"version": stored_case["version"]})
+    assert retried.status_code == 200 and retried.json()["learning"]["attempts"] == 0
+    assert stack.proof()["patchRequestCount"] == 1
+    stack.db.cases.update_one(
+        {"caseId": stack.case_id}, {"$set": {"learning": stored_case["learning"]}}
+    )
+    stack.start_worker()
+    incident_id = stack.case()["learning"]["incidentId"]
+    incident = stack.db.incidents.find_one({"incidentId": incident_id})
+    assert incident["verifiedReceiptId"] == stack.case()["verification"]["receiptId"]
+    assert len(incident["embedding"]) == 1024
+    # Wait for actual Vector Search indexing, never replace it with an exact lookup/fake score.
+    from app.services.memory import IncidentMemory
+
+    memory = IncidentMemory(stack.db, Settings())
+    while True:
+        result = memory.retrieve(
+            "retired receiving account invalid safekeeping account "
+            "current receiving account mapping requires validation",
+            source="directory:" + stack.case_id,
+            limit=10,
+        )
+        if any(m["incidentId"] == incident_id for m in result["matches"]):
+            break
+        assert time.monotonic() < end, result
+        time.sleep(0.5)
+    other_case, other_trade = "SI-" + str(uuid4().int), "TR-" + str(uuid4().int)
+    stack.sql(
+        "broker",
+        f"INSERT INTO trades SELECT '{other_trade}',portfolio_id,side,security,150,price,"
+        "currency,status,executed_at,cusip,settlement_date FROM trades "
+        f"WHERE trade_id='{stack.trade_id}'",
+    )
+    stack.sql(
+        "custodian",
+        f"INSERT INTO instructions SELECT '{other_case}','{other_trade}',portfolio_id,"
+        "side,security,150,1,'SAFE-100','REJECTED','INVALID_SAFEKEEPING_ACCOUNT',"
+        "rejection_note,NULL,updated_at,cusip,settlement_date FROM instructions "
+        f"WHERE instruction_id='{stack.case_id}'",
+    )
+    CaseStore(stack.db).create_case(other_case, other_trade)
+    stack.db.cases.update_one(
+        {"caseId": other_case},
+        {"$set": {"demoOwner": stack.case_id, "scenarioKind": "similar_exception"}},
+    )
+    try:
+        stack.client.post("/api/demo/directory-version", json={"version": 2}).raise_for_status()
+        response = stack.client.post(f"/api/cases/{other_case}/start", json={"version": 1})
+        assert response.status_code == 200, response.text
+        while True:
+            second = stack.client.get(f"/api/cases/{other_case}").json()
+            if second["stage"] == "AWAITING_APPROVAL":
+                break
+            assert time.monotonic() < end + 150, second
+            time.sleep(0.2)
+        reused = second["investigation"]["reusedExperience"]
+        assert reused["incidentId"] == incident_id
+        assert reused["learnedFromCaseId"] == stack.case_id and reused["score"] >= 0.7
+        steps = second["investigation"]["steps"]
+        contract = next(i for i, s in enumerate(steps) if s["tool"] == "get_directory_contract")
+        account = next(i for i, s in enumerate(steps) if s["tool"] == "get_directory_account")
+        assert contract < account and steps[contract]["guidedBy"] == incident_id
+        assert second["proposal"]["caseId"] == other_case and "approval" not in second
+        proof = stack.client.get("/api/demo/custodian-proof", params={"caseId": other_case}).json()
+        assert proof["patchRequestCount"] == 0  # remembered procedure cannot approve or execute
+        assert not stack.db.incidents.find_one({"learnedFromCaseId": other_case})
+        approved = stack.client.post(
+            f"/api/cases/{other_case}/decision",
+            json={
+                "version": second["version"],
+                "proposalHash": second["proposalHash"],
+                "decision": "APPROVE",
+            },
+        )
+        assert approved.status_code == 200, approved.text
+        applied = stack.client.post(
+            f"/api/cases/{other_case}/execute", json={"version": approved.json()["version"]}
+        )
+        assert applied.status_code == 200, applied.text
+        while True:
+            completed = stack.client.get(f"/api/cases/{other_case}").json()
+            if completed["stage"] == "VERIFIED":
+                break
+            assert time.monotonic() < end + 150, completed
+            time.sleep(0.2)
+        assert completed["operation"]["operationId"] != stored_case["operation"]["operationId"]
+        proof = stack.client.get("/api/demo/custodian-proof", params={"caseId": other_case}).json()
+        assert (proof["receiptCount"], proof["patchRequestCount"]) == (1, 1)
+        assert proof["receipts"][0]["receiptId"] != stored_case["verification"]["receiptId"]
+        assert stack.proof()["patchRequestCount"] == 1  # first case was not executed again
+    finally:
+        stack.db.cases.delete_one({"caseId": other_case})

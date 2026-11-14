@@ -25,3 +25,7 @@ frontend/dist/
 .idea/
 .vscode/
 *.log
+
+# local agent/editor tooling
+.claude/
+*.tsbuildinfo

@@ -36,10 +36,21 @@ React workbench → FastAPI API → MongoDB Atlas (cases, incidents + vector ind
 broker / directory / custodian simulators. See [docs/architecture.md](docs/architecture.md) and
 [docs/api-contracts.md](docs/api-contracts.md).
 
+## Run it locally
+
+Requires Python 3.12 with [uv](https://docs.astral.sh/uv/) and Node 18+.
+
+```bash
+cp .env.example .env                  # set SIM_ADMIN_TOKEN, DEMO_REVIEWER_TOKEN; DEMO_MODE=true
+(cd backend && uv sync)
+./scripts/dev.sh                      # simulators on :8101/:8102/:8103, API on :8000
+(cd frontend && npm install && npm run dev)   # workbench on http://localhost:5173
+(cd backend && uv run pytest)         # tests
+```
+
 ## Status
 
-Early build. See [docs/AI_CONTEXT.md](docs/AI_CONTEXT.md) for what is implemented and verified.
-Run instructions will be added here as components land.
+In progress. See [docs/AI_CONTEXT.md](docs/AI_CONTEXT.md) for what is implemented and verified.
 
 ## Configuration
 

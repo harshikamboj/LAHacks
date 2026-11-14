@@ -11,6 +11,9 @@ operation `OP-SI-2041-<8 hex>`, receipt `RCPT-<8 hex>`, incident `INC-001`…`IN
 
 ---
 
+All three simulators also expose `GET /health` → `{ "ok": true, "source": "SIMULATED_..." }`, are started with
+`uvicorn simulators.<name>:create_app --factory`, and seed themselves from `backend/fixtures/` on first start.
+
 ## 1. Broker simulator — port 8101 (read-only authority for the executed trade)
 
 ### `GET /trades/{tradeId}`
@@ -50,7 +53,8 @@ Re-seeds `broker.db` from `backend/fixtures/trades.json`. 200 `{ "reset": true }
 { "schemaVersion": 3, "portfolioRef": "P-17",
   "routing": { "custodyLeg": { "acct": "SAFE-401" } }, "asOf": "...", "source": "SIMULATED_DIRECTORY" }
 ```
-404 `PORTFOLIO_NOT_FOUND`.
+404 `PORTFOLIO_NOT_FOUND`. 409 `AMBIGUOUS_ACTIVE_ACCOUNT` (details `activeAccounts`) if the portfolio has ≠ 1 active
+authorized account — the directory never picks one for you; treat as conflicting evidence → MANUAL_REVIEW.
 
 ### `GET /contract`
 ```json
@@ -105,8 +109,13 @@ Fault `lost_response` armed: commit happens, then the reply is delayed `LOST_RES
 
 ### `GET /operations/{operationId}`
 200 → the receipt (same shape as PATCH 200, `replayed` omitted).
-404 → `{ "operationId": "...", "confirmedAbsent": true }` (authoritative: no such operation was committed).
-503 `OPERATIONS_UNAVAILABLE` when the `operations_unavailable` fault is armed (temporary; **not** absence).
+404 → authoritative absence (no such operation was committed):
+```json
+{ "error": { "code": "OPERATION_NOT_FOUND", "message": "...",
+             "details": { "operationId": "OP-...", "confirmedAbsent": true } } }
+```
+503 `OPERATIONS_UNAVAILABLE` when the `operations_unavailable` fault is armed (temporary; **not** absence —
+its `details` never contains `confirmedAbsent`). `CustodianClient.lookup_operation()` returns `None` only for the 404 above.
 
 ### `GET /admin/proof?instructionId=SI-2041` (no auth; read-only)
 ```json
@@ -170,7 +179,7 @@ Sets `executionRequested: true` on an `APPROVED` case (event `EXECUTION_REQUESTE
 |---|---|---|---|
 | `POST` | `/api/demo/reset` | `{ "confirm": "RESET" }` | reset 3 simulators + recreate synthetic case `SI-2041` (stage NEW, new `runId`) + upsert policy `v1` |
 | `GET` | `/api/demo/state` | — | `{ "faults": {...}, "directoryContractVersion": 1, "crashWorkerOnUnknown": false }` |
-| `POST` | `/api/demo/faults` | `{ "lostResponse": bool, "crashWorkerOnUnknown": bool, "operationsUnavailable": bool }` | arms custodian faults (via admin API) and sets `case.demo.crashWorkerOnUnknown`; appends a `FAULT_CONFIGURED` event |
+| `POST` | `/api/demo/faults` | `{ "lostResponse"?: bool, "crashWorkerOnUnknown"?: bool, "operationsUnavailable"?: bool }` (omitted = unchanged) | arms custodian faults (via admin API) and sets `case.demo.crashWorkerOnUnknown`; appends a `FAULT_CONFIGURED` event. *Until the case engine exists, `crashWorkerOnUnknown` returns `{applied: false, reason}`.* |
 | `POST` | `/api/demo/directory-version` | `{ "version": 1 \| 2 \| 3 }` | switches directory contract |
 | `GET` | `/api/demo/custodian-proof` | — | proxies custodian `/admin/proof?instructionId=SI-2041` |
 

@@ -44,7 +44,7 @@ Requires Python 3.12 with [uv](https://docs.astral.sh/uv/) and Node 18+.
 cp .env.example .env                  # set SIM_ADMIN_TOKEN, DEMO_REVIEWER_TOKEN; DEMO_MODE=true
 (cd backend && uv sync)
 ./scripts/dev.sh                      # simulators on :8101/:8102/:8103, API on :8000
-(cd frontend && npm install && npm run dev)   # workbench on http://localhost:5173
+(cd frontend && npm install && npm run dev)   # workbench on http://localhost:3000
 (cd backend && uv run pytest)         # tests
 ```
 

@@ -61,7 +61,7 @@ def search(query: str, k: int = 3) -> dict: ...
 cd backend && uv sync          # once
 cp .env.example .env           # once, at repo root; set SIM_ADMIN_TOKEN, DEMO_REVIEWER_TOKEN, DEMO_MODE=true
 ./scripts/dev.sh               # broker :8101, directory :8102, custodian :8103, API :8000
-cd frontend && npm install && npm run dev   # workbench on :5173 (proxies /api to :8000)
+cd frontend && npm install && npm run dev   # workbench on :3000 (proxies /api to :8000)
 cd backend && uv run pytest    # tests
 ```
 

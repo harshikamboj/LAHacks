@@ -43,7 +43,7 @@ Fixtures live in `backend/fixtures/*.json`.
 ## 4. Processes and ports
 
 ```text
-React Case Workbench (5173)  <--REST + 1s polling-->  FastAPI API (8000)
+React Case Workbench (3000)  <--REST + 1s polling-->  FastAPI API (8000)
                                                          |  reads/writes cases, policies (PyMongo)
                                                          |  live READS of simulators for evidence cards
                                                          v
@@ -68,7 +68,7 @@ React Case Workbench (5173)  <--REST + 1s polling-->  FastAPI API (8000)
 | Custodian sim | 8103 | `backend/simulators/data/custodian.db` | instruction, revisions, operations/receipts, idempotency, faults |
 | API | 8000 | Atlas | case lifecycle, approval authorization, demo controls |
 | Worker | — | Atlas | investigation, pre-send intent, PATCH, verification, recovery |
-| Frontend | 5173 | — | workbench UI (Vite dev proxy `/api` → 8000) |
+| Frontend | 3000 | — | workbench UI (Vite dev proxy `/api` → 8000) |
 
 Trust boundary: the **API never calls custodian `PATCH`**. The API only records approval and an
 `executionRequested` flag; the worker performs the mutation after re-checking policy and live evidence.

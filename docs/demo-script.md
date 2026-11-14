@@ -1,7 +1,7 @@
 # 3-minute live demo script
 
 Setup (before judges arrive): terminals running `scripts/dev.sh` (3 simulators + API), `scripts/worker.sh`,
-and `cd frontend && npm run dev`. Open http://localhost:5173. Click **Reset Demo**.
+and `cd frontend && npm run dev`. Open http://localhost:3000. Click **Reset Demo**.
 
 | Time | Presenter action | What the screen proves |
 |---|---|---|

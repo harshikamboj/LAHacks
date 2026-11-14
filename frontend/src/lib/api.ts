@@ -33,7 +33,7 @@ export interface Health {
   api: string;
   atlas: { ok: boolean; status: string; db: string; error: string | null };
   simulators: Record<string, { ok: boolean; url: string; error?: string }>;
-  worker: { online: boolean; status?: string; workerId?: string; ageSeconds?: number };
+  worker: { online: boolean; status: string; workerId?: string; pid?: number; ageSeconds?: number; reason?: string };
   memory: { vectorSearch: string; reason: string | null };
   demoMode: boolean;
 }

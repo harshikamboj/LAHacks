@@ -33,7 +33,9 @@ class SimulatorUnavailable(SimulatorError):
 
 
 class SimulatorHttpError(SimulatorError):
-    def __init__(self, system: str, status: int, code: str, message: str, details: dict | None = None):
+    def __init__(
+        self, system: str, status: int, code: str, message: str, details: dict | None = None
+    ):
         super().__init__(system, f"{status} {code}: {message}")
         self.status = status
         self.code = code
@@ -47,15 +49,31 @@ class _Client:
         self.base_url = base_url.rstrip("/")
 
     def _admin_headers(self) -> dict:
-        return {"X-Sim-Admin": get_settings().sim_admin_token}
+        return {"X-Sim-Admin": get_settings().sim_admin_token.get_secret_value()}
 
-    def _request(self, method: str, path: str, *, timeout: float = READ_TIMEOUT,
-                 json: Any = None, headers: dict | None = None, params: dict | None = None) -> dict:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        timeout: float = READ_TIMEOUT,
+        json: Any = None,
+        headers: dict | None = None,
+        params: dict | None = None,
+    ) -> dict:
         try:
-            resp = httpx.request(method, self.base_url + path, json=json, headers=headers,
-                                 params=params, timeout=timeout)
+            resp = httpx.request(
+                method,
+                self.base_url + path,
+                json=json,
+                headers=headers,
+                params=params,
+                timeout=timeout,
+            )
         except httpx.TimeoutException as exc:
-            raise SimulatorTimeout(self.system, f"{method} {path} timed out after {timeout}s") from exc
+            raise SimulatorTimeout(
+                self.system, f"{method} {path} timed out after {timeout}s"
+            ) from exc
         except httpx.TransportError as exc:
             raise SimulatorUnavailable(self.system, f"{method} {path} failed: {exc}") from exc
         if resp.status_code >= 500:
@@ -102,8 +120,9 @@ class DirectoryClient(_Client):
         return self._request("GET", f"/account-status/{account_id}")
 
     def set_contract(self, version: int) -> dict:
-        return self._request("POST", "/admin/contract", json={"version": version},
-                             headers=self._admin_headers())
+        return self._request(
+            "POST", "/admin/contract", json={"version": version}, headers=self._admin_headers()
+        )
 
 
 class CustodianClient(_Client):
@@ -112,13 +131,24 @@ class CustodianClient(_Client):
     def get_instruction(self, instruction_id: str) -> dict:
         return self._request("GET", f"/instructions/{instruction_id}")
 
-    def amend_instruction(self, instruction_id: str, *, expected_revision: int, new_account: str,
-                          operation_id: str, timeout: float | None = None) -> dict:
+    def amend_instruction(
+        self,
+        instruction_id: str,
+        *,
+        expected_revision: int,
+        new_account: str,
+        operation_id: str,
+        timeout: float | None = None,
+    ) -> dict:
         """The only mutation in the system. Only the worker may call this."""
         return self._request(
-            "PATCH", f"/instructions/{instruction_id}",
-            json={"expectedRevision": expected_revision, "newAccount": new_account,
-                  "operationId": operation_id},
+            "PATCH",
+            f"/instructions/{instruction_id}",
+            json={
+                "expectedRevision": expected_revision,
+                "newAccount": new_account,
+                "operationId": operation_id,
+            },
             headers={"Idempotency-Key": operation_id},
             timeout=timeout or get_settings().custodian_timeout_seconds,
         )
@@ -142,8 +172,9 @@ class CustodianClient(_Client):
     def get_faults(self) -> dict:
         return self._request("GET", "/admin/faults")
 
-    def set_faults(self, *, lost_response: bool | None = None,
-                   operations_unavailable: bool | None = None) -> dict:
+    def set_faults(
+        self, *, lost_response: bool | None = None, operations_unavailable: bool | None = None
+    ) -> dict:
         body = {"lostResponse": lost_response, "operationsUnavailable": operations_unavailable}
         return self._request("POST", "/admin/faults", json=body, headers=self._admin_headers())
 

@@ -5,7 +5,13 @@ from __future__ import annotations
 
 def test_broker_seeded_trade(broker):
     t = broker.get("/trades/TR-2041").json()
-    assert (t["side"], t["security"], t["quantity"], t["price"], t["currency"]) == ("BUY", "XYZ", 100, "42.50", "CAD")
+    assert (t["side"], t["security"], t["quantity"], t["price"], t["currency"]) == (
+        "BUY",
+        "XYZ",
+        100,
+        "42.50",
+        "CAD",
+    )
     assert (t["portfolioId"], t["status"]) == ("P-17", "EXECUTED")
     assert broker.get("/trades/TR-9999").status_code == 404
 

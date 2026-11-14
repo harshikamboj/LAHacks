@@ -31,7 +31,11 @@ def test_first_patch_commits_one_receipt_and_one_revision(custodian):
     assert (receipt["previousRevision"], receipt["resultRevision"]) == (1, 2)
 
     instr = custodian.get("/instructions/SI-2041").json()
-    assert (instr["revision"], instr["status"], instr["safekeepingAccount"]) == (2, "ACCEPTED", "SAFE-401")
+    assert (instr["revision"], instr["status"], instr["safekeepingAccount"]) == (
+        2,
+        "ACCEPTED",
+        "SAFE-401",
+    )
     assert instr["latestOperationId"] == OP
 
     op = custodian.get(f"/operations/{OP}").json()
@@ -82,7 +86,9 @@ def test_new_key_against_amended_instruction_is_stale(custodian):
 
 def test_missing_or_mismatched_key_is_rejected_without_writes(custodian):
     assert patch(custodian, key=None).json()["error"]["code"] == "MISSING_IDEMPOTENCY_KEY"
-    assert patch(custodian, key="OP-SI-2041-other").json()["error"]["code"] == "KEY_OPERATION_MISMATCH"
+    assert (
+        patch(custodian, key="OP-SI-2041-other").json()["error"]["code"] == "KEY_OPERATION_MISMATCH"
+    )
     p = proof(custodian)
     assert p["receiptCount"] == 0 and p["currentRevision"] == 1
 
@@ -128,12 +134,21 @@ def test_reset_restores_rejected_baseline(custodian, admin_headers):
     patch(custodian)
     assert custodian.post("/admin/reset", headers=admin_headers).status_code == 200
     p = proof(custodian)
-    assert (p["currentRevision"], p["status"], p["receiptCount"], p["patchRequestCount"]) == (1, "REJECTED", 0, 0)
+    assert (p["currentRevision"], p["status"], p["receiptCount"], p["patchRequestCount"]) == (
+        1,
+        "REJECTED",
+        0,
+        0,
+    )
 
 
 def test_already_accepted_instruction_cannot_be_amended_with_new_key(custodian):
     patch(custodian)
     other = "OP-SI-2041-cafef00d"
-    r = patch(custodian, body={"expectedRevision": 2, "newAccount": "SAFE-401", "operationId": other}, key=other)
+    r = patch(
+        custodian,
+        body={"expectedRevision": 2, "newAccount": "SAFE-401", "operationId": other},
+        key=other,
+    )
     assert r.status_code == 409 and r.json()["error"]["code"] == "NOT_AMENDABLE"
     assert proof(custodian)["receiptCount"] == 1

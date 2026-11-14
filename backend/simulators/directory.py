@@ -4,7 +4,8 @@ The response shape of GET /accounts/{portfolioId} depends on the active contract
 so the agent has to adapt when the directory changes:
   v1 -> settlementAccount
   v2 -> delivery.safekeepingAccount
-  v3 -> routing.custodyLeg.acct   (no validated adapter: the agent must send the case to manual review)
+  v3 -> routing.custodyLeg.acct
+        (no validated adapter: the agent must send the case to manual review)
 
 Run: uv run uvicorn simulators.directory:create_app --factory --port 8102
 """
@@ -35,9 +36,21 @@ CREATE TABLE IF NOT EXISTS settings (
 """
 
 CONTRACTS = {
-    1: {"accountPath": "settlementAccount", "statusPath": "accountStatus", "portfolioPath": "portfolioId"},
-    2: {"accountPath": "delivery.safekeepingAccount", "statusPath": "delivery.status", "portfolioPath": "portfolio.id"},
-    3: {"accountPath": "routing.custodyLeg.acct", "statusPath": None, "portfolioPath": "portfolioRef"},
+    1: {
+        "accountPath": "settlementAccount",
+        "statusPath": "accountStatus",
+        "portfolioPath": "portfolioId",
+    },
+    2: {
+        "accountPath": "delivery.safekeepingAccount",
+        "statusPath": "delivery.status",
+        "portfolioPath": "portfolio.id",
+    },
+    3: {
+        "accountPath": "routing.custodyLeg.acct",
+        "statusPath": None,
+        "portfolioPath": "portfolioRef",
+    },
 }
 
 
@@ -53,7 +66,13 @@ def seed(store: Store) -> None:
         for a in fixture["accounts"]:
             store.conn.execute(
                 "INSERT INTO accounts VALUES (?,?,?,?,?)",
-                (a["accountId"], a["portfolioId"], a["status"], int(a["authorized"]), a["retiredOn"]),
+                (
+                    a["accountId"],
+                    a["portfolioId"],
+                    a["status"],
+                    int(a["authorized"]),
+                    a["retiredOn"],
+                ),
             )
         _set_contract(store, fixture["defaultContractVersion"])
         store.conn.execute("COMMIT")
@@ -106,9 +125,12 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         retired = [r for r in rows if r["status"] == "RETIRED"]
         if len(active) != 1:
             # The directory refuses to pick one for you; callers must treat this as a conflict.
-            return error(409, "AMBIGUOUS_ACTIVE_ACCOUNT",
-                         f"Portfolio {portfolio_id} has {len(active)} active authorized accounts",
-                         {"activeAccounts": [r["account_id"] for r in active]})
+            return error(
+                409,
+                "AMBIGUOUS_ACTIVE_ACCOUNT",
+                f"Portfolio {portfolio_id} has {len(active)} active authorized accounts",
+                {"activeAccounts": [r["account_id"] for r in active]},
+            )
         acct = active[0]["account_id"]
         version, _ = _contract(store)
         as_of = utc_now()

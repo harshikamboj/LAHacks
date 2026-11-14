@@ -1,1 +1,1 @@
-"""Domain services: simulator clients, investigation, approvals, workflow, memory."""
+"""Read-only incident retrieval services."""

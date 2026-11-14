@@ -106,18 +106,43 @@ def seed(store: Store) -> None:
     with store.lock:
         c = store.conn
         c.execute("BEGIN IMMEDIATE")
-        for table in ("instructions", "instruction_revisions", "operations", "patch_requests", "faults"):
+        for table in (
+            "instructions",
+            "instruction_revisions",
+            "operations",
+            "patch_requests",
+            "faults",
+        ):
             c.execute(f"DELETE FROM {table}")
         for i in load_fixture("instructions.json"):
             c.execute(
                 "INSERT INTO instructions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (i["instructionId"], i["tradeId"], i["portfolioId"], i["side"], i["security"],
-                 i["quantity"], i["revision"], i["safekeepingAccount"], i["status"],
-                 i["rejectionReason"], i["rejectionNote"], None, now),
+                (
+                    i["instructionId"],
+                    i["tradeId"],
+                    i["portfolioId"],
+                    i["side"],
+                    i["security"],
+                    i["quantity"],
+                    i["revision"],
+                    i["safekeepingAccount"],
+                    i["status"],
+                    i["rejectionReason"],
+                    i["rejectionNote"],
+                    None,
+                    now,
+                ),
             )
             c.execute(
                 "INSERT INTO instruction_revisions VALUES (?,?,?,?,?,?)",
-                (i["instructionId"], i["revision"], i["safekeepingAccount"], i["status"], None, now),
+                (
+                    i["instructionId"],
+                    i["revision"],
+                    i["safekeepingAccount"],
+                    i["status"],
+                    None,
+                    now,
+                ),
             )
         for name in FAULT_NAMES:
             c.execute("INSERT INTO faults(name, armed) VALUES (?, 0)", (name,))
@@ -184,7 +209,9 @@ def create_app(db_path: Path | None = None) -> FastAPI:
 
     @app.get("/instructions/{instruction_id}")
     def get_instruction(instruction_id: str):
-        row = store.query_one("SELECT * FROM instructions WHERE instruction_id = ?", (instruction_id,))
+        row = store.query_one(
+            "SELECT * FROM instructions WHERE instruction_id = ?", (instruction_id,)
+        )
         if row is None:
             return error(404, "INSTRUCTION_NOT_FOUND", f"No instruction {instruction_id}")
         return _instruction_json(row)
@@ -201,10 +228,14 @@ def create_app(db_path: Path | None = None) -> FastAPI:
             return error(400, "MISSING_IDEMPOTENCY_KEY", "Idempotency-Key header is required")
         if idempotency_key != body.operationId:
             log_request(instruction_id, idempotency_key, "REJECTED_KEY_MISMATCH")
-            return error(400, "KEY_OPERATION_MISMATCH", "Idempotency-Key must equal body.operationId")
+            return error(
+                400, "KEY_OPERATION_MISMATCH", "Idempotency-Key must equal body.operationId"
+            )
         if not ACCOUNT_RE.match(body.newAccount):
             log_request(instruction_id, idempotency_key, "REJECTED_INVALID_ACCOUNT")
-            return error(400, "INVALID_ACCOUNT", f"{body.newAccount!r} is not a SAFE-<digits> account")
+            return error(
+                400, "INVALID_ACCOUNT", f"{body.newAccount!r} is not a SAFE-<digits> account"
+            )
 
         payload = {
             "instructionId": instruction_id,
@@ -229,44 +260,75 @@ def create_app(db_path: Path | None = None) -> FastAPI:
                         response = {**_receipt_json(existing), "replayed": True}
                     else:
                         outcome = "REJECTED_KEY_REUSED"
-                        response = error(409, "IDEMPOTENCY_KEY_REUSED",
-                                         "This Idempotency-Key was already used with a different payload",
-                                         {"operationId": existing["operation_id"]})
+                        response = error(
+                            409,
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "This Idempotency-Key was already used with a different payload",
+                            {"operationId": existing["operation_id"]},
+                        )
                 else:
                     instr = c.execute(
                         "SELECT * FROM instructions WHERE instruction_id = ?", (instruction_id,)
                     ).fetchone()
                     if instr is None:
                         outcome = "REJECTED_NOT_FOUND"
-                        response = error(404, "INSTRUCTION_NOT_FOUND", f"No instruction {instruction_id}")
+                        response = error(
+                            404, "INSTRUCTION_NOT_FOUND", f"No instruction {instruction_id}"
+                        )
                     elif instr["revision"] != body.expectedRevision:
                         outcome = "REJECTED_STALE_REVISION"
-                        response = error(409, "STALE_REVISION",
-                                         f"Expected revision {body.expectedRevision}, current is {instr['revision']}",
-                                         {"currentRevision": instr["revision"]})
+                        response = error(
+                            409,
+                            "STALE_REVISION",
+                            f"Expected revision {body.expectedRevision}, "
+                            f"current is {instr['revision']}",
+                            {"currentRevision": instr["revision"]},
+                        )
                     elif instr["status"] != "REJECTED":
                         outcome = "REJECTED_NOT_AMENDABLE"
-                        response = error(409, "NOT_AMENDABLE",
-                                         f"Instruction status is {instr['status']}, only REJECTED can be amended")
+                        response = error(
+                            409,
+                            "NOT_AMENDABLE",
+                            f"Instruction status is {instr['status']}, "
+                            "only REJECTED can be amended",
+                        )
                     else:
                         # 2. Apply the amendment and its receipt atomically.
                         now = utc_now()
                         new_rev = instr["revision"] + 1
                         receipt_id = "RCPT-" + secrets.token_hex(4)
                         c.execute(
-                            "UPDATE instructions SET revision = ?, safekeeping_account = ?, status = 'ACCEPTED', "
+                            "UPDATE instructions SET revision = ?, safekeeping_account = ?, "
+                            "status = 'ACCEPTED', "
                             "latest_operation_id = ?, updated_at = ? WHERE instruction_id = ?",
                             (new_rev, body.newAccount, body.operationId, now, instruction_id),
                         )
                         c.execute(
                             "INSERT INTO instruction_revisions VALUES (?,?,?,?,?,?)",
-                            (instruction_id, new_rev, body.newAccount, "ACCEPTED", body.operationId, now),
+                            (
+                                instruction_id,
+                                new_rev,
+                                body.newAccount,
+                                "ACCEPTED",
+                                body.operationId,
+                                now,
+                            ),
                         )
                         c.execute(
                             "INSERT INTO operations VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                            (idempotency_key, body.operationId, receipt_id, instruction_id, payload_hash,
-                             json.dumps(payload, sort_keys=True), instr["revision"], new_rev,
-                             body.newAccount, "ACCEPTED", now),
+                            (
+                                idempotency_key,
+                                body.operationId,
+                                receipt_id,
+                                instruction_id,
+                                payload_hash,
+                                json.dumps(payload, sort_keys=True),
+                                instr["revision"],
+                                new_rev,
+                                body.newAccount,
+                                "ACCEPTED",
+                                now,
+                            ),
                         )
                         row = c.execute(
                             "SELECT * FROM operations WHERE idempotency_key = ?", (idempotency_key,)
@@ -282,7 +344,8 @@ def create_app(db_path: Path | None = None) -> FastAPI:
                             drop_response = True
                             outcome = "COMMITTED_RESPONSE_DROPPED"
                 c.execute(
-                    "INSERT INTO patch_requests(instruction_id, idempotency_key, outcome, received_at) "
+                    "INSERT INTO patch_requests"
+                    "(instruction_id, idempotency_key, outcome, received_at) "
                     "VALUES (?,?,?,?)",
                     (instruction_id, idempotency_key, outcome, utc_now()),
                 )
@@ -300,25 +363,39 @@ def create_app(db_path: Path | None = None) -> FastAPI:
     @app.get("/operations/{operation_id}")
     def get_operation(operation_id: str):
         if fault_armed("operations_unavailable"):
-            return error(503, "OPERATIONS_UNAVAILABLE",
-                         "Operation lookup temporarily unavailable; this is NOT a confirmation of absence")
+            return error(
+                503,
+                "OPERATIONS_UNAVAILABLE",
+                "Operation lookup temporarily unavailable; this is NOT a confirmation of absence",
+            )
         row = store.query_one("SELECT * FROM operations WHERE operation_id = ?", (operation_id,))
         if row is None:
-            return error(404, "OPERATION_NOT_FOUND", f"No committed operation {operation_id}",
-                         {"operationId": operation_id, "confirmedAbsent": True})
+            return error(
+                404,
+                "OPERATION_NOT_FOUND",
+                f"No committed operation {operation_id}",
+                {"operationId": operation_id, "confirmedAbsent": True},
+            )
         return _receipt_json(row)
 
     @app.get("/admin/proof")
     def proof(instructionId: str = "SI-2041"):
-        instr = store.query_one("SELECT * FROM instructions WHERE instruction_id = ?", (instructionId,))
+        instr = store.query_one(
+            "SELECT * FROM instructions WHERE instruction_id = ?", (instructionId,)
+        )
         if instr is None:
             return error(404, "INSTRUCTION_NOT_FOUND", f"No instruction {instructionId}")
         receipts = store.query_all(
-            "SELECT * FROM operations WHERE instruction_id = ? ORDER BY created_at", (instructionId,))
+            "SELECT * FROM operations WHERE instruction_id = ? ORDER BY created_at",
+            (instructionId,),
+        )
         revisions = store.query_all(
-            "SELECT * FROM instruction_revisions WHERE instruction_id = ? ORDER BY revision", (instructionId,))
+            "SELECT * FROM instruction_revisions WHERE instruction_id = ? ORDER BY revision",
+            (instructionId,),
+        )
         patches = store.query_all(
-            "SELECT * FROM patch_requests WHERE instruction_id = ? ORDER BY id", (instructionId,))
+            "SELECT * FROM patch_requests WHERE instruction_id = ? ORDER BY id", (instructionId,)
+        )
         return {
             "instructionId": instructionId,
             "currentRevision": instr["revision"],
@@ -327,17 +404,30 @@ def create_app(db_path: Path | None = None) -> FastAPI:
             "receiptCount": len(receipts),
             "patchRequestCount": len(patches),
             "receipts": [
-                {"receiptId": r["receipt_id"], "operationId": r["operation_id"],
-                 "resultRevision": r["result_revision"], "committedAt": r["created_at"]}
+                {
+                    "receiptId": r["receipt_id"],
+                    "operationId": r["operation_id"],
+                    "resultRevision": r["result_revision"],
+                    "committedAt": r["created_at"],
+                }
                 for r in receipts
             ],
             "revisions": [
-                {"revision": r["revision"], "account": r["safekeeping_account"], "status": r["status"],
-                 "operationId": r["operation_id"], "createdAt": r["created_at"]}
+                {
+                    "revision": r["revision"],
+                    "account": r["safekeeping_account"],
+                    "status": r["status"],
+                    "operationId": r["operation_id"],
+                    "createdAt": r["created_at"],
+                }
                 for r in revisions
             ],
             "patchRequests": [
-                {"idempotencyKey": p["idempotency_key"], "outcome": p["outcome"], "receivedAt": p["received_at"]}
+                {
+                    "idempotencyKey": p["idempotency_key"],
+                    "outcome": p["outcome"],
+                    "receivedAt": p["received_at"],
+                }
                 for p in patches
             ],
             "source": SOURCE,
@@ -345,18 +435,24 @@ def create_app(db_path: Path | None = None) -> FastAPI:
 
     @app.get("/admin/faults")
     def get_faults():
-        return {"lostResponse": fault_armed("lost_response"),
-                "operationsUnavailable": fault_armed("operations_unavailable")}
+        return {
+            "lostResponse": fault_armed("lost_response"),
+            "operationsUnavailable": fault_armed("operations_unavailable"),
+        }
 
     @app.post("/admin/faults", dependencies=[Depends(require_admin)])
     def set_faults(body: FaultsBody):
         with store.lock:
             if body.lostResponse is not None:
-                store.conn.execute("UPDATE faults SET armed = ? WHERE name = 'lost_response'",
-                                   (int(body.lostResponse),))
+                store.conn.execute(
+                    "UPDATE faults SET armed = ? WHERE name = 'lost_response'",
+                    (int(body.lostResponse),),
+                )
             if body.operationsUnavailable is not None:
-                store.conn.execute("UPDATE faults SET armed = ? WHERE name = 'operations_unavailable'",
-                                   (int(body.operationsUnavailable),))
+                store.conn.execute(
+                    "UPDATE faults SET armed = ? WHERE name = 'operations_unavailable'",
+                    (int(body.operationsUnavailable),),
+                )
         return get_faults()
 
     @app.post("/admin/reset", dependencies=[Depends(require_admin)])

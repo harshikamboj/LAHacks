@@ -4,6 +4,16 @@
 > Primary spec: the team's *Master Build Brief* (summarised here) + `TradeOps_Reconciler_Blueprint.docx`.
 > All data is **synthetic**. No real brokers, banks, custodians, accounts or production systems.
 
+Implementation note (2026-11-14): MongoDB config, models, hashing, CaseStore, schema/index setup,
+safe fixture seeding and real Voyage/Vector Search integration are implemented. The actual API, worker,
+simulators and frontend remain planned. Organizer target is **Agents in Context Toronto / Cluster0**;
+see `mongodb-setup.md` for deployment/verification status and `AI_CONTEXT.md` for outstanding work.
+
+Voyage/Atlas retrieval is verified on organizer Cluster0: 9 verified incidents embedded with
+voyage-3.5-lite (1024 dims); the live directory-field query returns INC-004 first. Only the $vectorSearch
+aggregation uses local read concern (Atlas requirement); case/checkpoint reads and writes retain majority.
+The worker has not yet been built to consume the retrieved next-check suggestion.
+
 ## 1. Product in one sentence
 
 TradeOps Reconciler investigates a rejected securities settlement instruction, verifies the correct
@@ -32,7 +42,7 @@ Fixtures live in `backend/fixtures/*.json`.
 |---|---|
 | LLM | **None for the MVP.** The investigator is deterministic. Its next read-only step is guided by **Atlas Vector Search** over verified past incidents (each incident's `suggestedNextCheck` maps to a read-only tool). An LLM can be added later behind the same tool interface; it may never mutate, approve or bypass policy. |
 | Embeddings | **Voyage AI** `voyage-3.5-lite`, 1024 dims, cosine, `VOYAGE_API_KEY`. Same model for indexing (`input_type=document`) and querying (`input_type=query`). If key or index is missing, retrieval reports `PENDING` with a reason — **never faked**. |
-| Database | MongoDB **Atlas Sandbox** (organizer-provided), accessed at runtime **only via PyMongo** with the app's own credentials (`MONGODB_URI`). MCP is a setup tool, not a runtime dependency. Atlas setup happens in a teammate's session — see `docs/AI_CONTEXT.md`. |
+| Database | MongoDB **Atlas Sandbox** (organizer-provided), accessed at runtime **only via PyMongo** with the app's own credentials (`MONGODB_URI`). MCP is a setup tool, not a runtime dependency. Atlas setup is implemented — see `docs/mongodb-setup.md`. |
 | Backend | Python 3.12, `uv`, FastAPI, Pydantic v2, PyMongo, httpx, pytest. |
 | Simulators | Three **separate FastAPI processes**, each with its **own SQLite file**. Independent authorities; survive worker restarts. |
 | Worker | One separate Python process (`python -m app.worker`) running an explicit state machine. **The only component that calls `PATCH`.** Killable/restartable independently. No queues, no LangGraph. |
@@ -83,7 +93,7 @@ LAHacks/
   backend/
     pyproject.toml
     app/
-      main.py  config.py  models.py  db.py  hashing.py  worker.py
+      main.py  config.py  models.py  db.py  schema.py  seed.py  hashing.py  worker.py
       routes/   cases.py  demo.py  health.py
       services/ investigation.py  approvals.py  workflow.py  verification.py
                 memory.py  directory_adapters.py  simulator_clients.py
@@ -164,7 +174,8 @@ real BSON UTC datetimes (`datetime.now(timezone.utc)`).
 
 ```python
 cases.find_one_and_update(
-    {"caseId": case_id, "stage": from_stage, "version": expected_version},
+    {"caseId": case_id, "runId": run_id, "synthetic": True,
+     "stage": from_stage, "version": expected_version},
     {"$set": {"stage": to_stage, **fields, "updatedAt": now},
      "$inc": {"version": 1},
      "$push": {"events": {"$each": [event], "$slice": -100}}},
@@ -184,6 +195,7 @@ The **pre-send intent** write (APPROVED → AWAITING_VERIFICATION) uses
 | `cases` | `{"operation.operationId": 1}` unique, `partialFilterExpression: {"operation.operationId": {$exists: true}}` |
 | `cases` | `{stage: 1}` (worker startup/resume scan) |
 | `incidents` | `{incidentId: 1}` unique |
+| `policies` | `{policyId: 1}` unique |
 | `incidents` | Atlas Vector Search index `incident_vector_index` (below) |
 
 `$jsonSchema` validator on `cases` (`validationLevel: "strict"`): required `caseId`, `tradeId`, `portfolioId`,
@@ -196,12 +208,14 @@ Vector index definition (`type: "vectorSearch"`):
   "fields": [
     { "type": "vector", "path": "embedding", "numDimensions": 1024, "similarity": "cosine" },
     { "type": "filter", "path": "source" },
-    { "type": "filter", "path": "disposition" }
+    { "type": "filter", "path": "disposition" },
+    { "type": "filter", "path": "embeddingModel" },
+    { "type": "filter", "path": "synthetic" }
   ]
 }
 ```
 
-Query: `$vectorSearch {index: "incident_vector_index", path: "embedding", queryVector, numCandidates: 50, limit: 3, filter: {disposition: {$eq: "VERIFIED"}}}` then `$project` with `score: {$meta: "vectorSearchScore"}`, excluding `embedding`.
+Query: `$vectorSearch {index: "incident_vector_index", path: "embedding", queryVector, numCandidates: 50, limit: 3, filter: {disposition: {$eq: "VERIFIED"}, synthetic: {$eq: true}, embeddingModel: {$eq: "voyage-3.5-lite"}}}` then `$project` with `score: {$meta: "vectorSearchScore"}`, excluding `embedding`.
 
 ## 7. State machine
 

@@ -18,7 +18,9 @@ from app.services.simulator_clients import SimulatorError
 app = FastAPI(
     title="TradeOps Reconciler API",
     version="0.1.0",
-    description="Control layer for AI-agent actions in bank operations (hackathon MVP, synthetic data).",
+    description=(
+        "Control layer for AI-agent actions in bank operations (hackathon MVP, synthetic data)."
+    ),
 )
 
 app.add_middleware(

@@ -17,53 +17,15 @@ everything binding from them is captured in `docs/architecture.md`.
 
 | Area | Status |
 |---|---|
-| Repo | `main` has the init docs. Branch **`simulators`** has everything below (not yet merged). |
-| Simulators (broker/directory/custodian) | **Built + tested.** `backend/simulators/`. 18 pytest tests pass (`cd backend && uv run pytest`). Lost-response fault verified against real processes: caller times out, custodian commits once, same-key replay returns the original receipt. |
-| API (`backend/app/`) | **Partial.** Built: `config.py`, `errors.py`, `services/simulator_clients.py`, routes `GET /api/health`, `GET /api/cases/{id}/sources`, `/api/demo/{reset,state,faults,directory-version,custodian-proof}`. **Not built:** case routes (`/cases`, `/cases/{id}`, investigate/approve/execute/timeline), worker, investigation, approvals, workflow, verification, directory adapters. |
-| Atlas Sandbox | **Not set up.** DB lane (teammate). `app/db.py`, `app/services/memory.py`, `backend/scripts/setup_atlas.py` not written yet. |
-| Vector Search | Not set up. Needs `VOYAGE_API_KEY` + Atlas index (§4). |
-| Frontend workbench | **Shell built** (`frontend/`, React 18 + Vite 5 + TS). Live source cards, failure lab (lost response, ops unavailable, directory v1/v2/v3, reset), proof panel — all from real API reads. Investigation/approval/timeline show an honest "case engine not connected" state and only poll `/api/cases/{id}` once `/api/health` reports Atlas connected. |
-| Tests | Simulator + custodian idempotency tests done. Mongo-backed tests (approval guards, happy path, crash recovery) not started. |
-
-### Work split (two lanes, no shared files)
-
-| Lane | Owner | Files |
-|---|---|---|
-| **DB lane** | teammate (branch `db-setup`) | `backend/app/db.py`, `backend/app/services/memory.py`, `backend/scripts/setup_atlas.py`, Atlas Sandbox + Voyage key |
-| **App lane** | Harshi (branch `simulators`) | `backend/simulators/*`, `backend/app/{config,errors,main}.py`, `backend/app/routes/*`, `backend/app/services/simulator_clients.py`, `frontend/*`, `scripts/*` |
-| **Shared next** | whoever is free first, after both merge | `backend/app/worker.py`, `services/{investigation,approvals,workflow,verification,directory_adapters}.py`, `routes/cases.py` |
-
-### Interface the DB lane must provide (agreed — don't change without updating this file)
-
-```python
-# backend/app/db.py  — reads settings from app.config.get_settings() (mongodb_uri, mongodb_db)
-def ping() -> None: ...                       # raises on failure; used by GET /api/health
-def get_db() -> "pymongo.database.Database": ...
-def ensure_indexes() -> None: ...             # idempotent; normal indexes only (vector index lives in setup_atlas.py)
-def cas_update(case_id: str, from_stage: str, expected_version: int, to_stage: str | None = None,
-               set_fields: dict | None = None, event: dict | None = None,
-               majority: bool = False) -> dict | None: ...
-    # find_one_and_update({caseId, stage: from_stage, version: expected_version},
-    #   {$set: {stage: to_stage or from_stage, **set_fields, updatedAt}, $inc: {version: 1},
-    #    $push: {events: {$each: [event], $slice: -100}}}) -> updated doc, or None if stale.
-    # majority=True -> WriteConcern("majority", j=True) (used for the pre-send intent).
-
-# backend/app/services/memory.py
-def search(query: str, k: int = 3) -> dict: ...
-    # {"status": "FOUND" | "PENDING" | "NONE", "matches": [{incidentId, title, score,
-    #   suggestedNextCheck, verifiedResolution}], "reason": str | None}
-    # PENDING (with reason) when VOYAGE_API_KEY / index / Atlas unavailable or MEMORY_ENABLED=false. Never fake.
-```
-
-### How to run what exists
-
-```bash
-cd backend && uv sync          # once
-cp .env.example .env           # once, at repo root; set SIM_ADMIN_TOKEN, DEMO_REVIEWER_TOKEN, DEMO_MODE=true
-./scripts/dev.sh               # broker :8101, directory :8102, custodian :8103, API :8000
-cd frontend && npm install && npm run dev   # workbench on :3000 (proxies /api to :8000)
-cd backend && uv run pytest    # tests
-```
+| Repo | MongoDB runtime modules, setup/verification scripts and tests added; docs and fixtures retained. |
+| Simulators (broker/directory/custodian) | **Built + tested** (merged from branch `simulators`). Separate FastAPI processes with own SQLite files; custodian idempotency (key checked before revision, amendment + receipt in one transaction), lost-response and operations-unavailable faults, `/admin/proof`. Lost-response verified against real processes. |
+| Backend API + worker | Database foundation implemented. API routes built: `GET /api/health` (Atlas ping, worker heartbeat from `workers`, memory status via `IncidentMemory.status()`), `GET /api/cases/{id}/sources`, `/api/demo/{reset,state,faults,directory-version,custodian-proof}`. **Not built:** case routes (`/cases/{id}`, investigate/approve/execute/timeline), the workflow worker, investigation, approvals, verification. |
+| Atlas Sandbox | Organizer confirmed: Agents in Context Toronto, project 6af899b4fb07f6aa867aa481, Cluster0 (M10/AWS US_WEST_1/MongoDB 9.0.7). Live setup and runtime verification passed; current .env rechecked with both runtime/setup connections successful; targets organizer Cluster0. See mongodb-setup.md. |
+| Development Atlas | SettleFlow 2.0 / tradeops-sandbox (Free/M0, AWS US_EAST_1, MongoDB 8.0.37): verified development environment retained; active runtime now uses organizer Cluster0. |
+| Vector Search | **Verified on organizer Cluster0:** READY index; 9 verified incidents embedded with Voyage voyage-3.5-lite, 1024 dims. Real query returns INC-004 first (score ~0.800), suggesting GET_DIRECTORY_CONTRACT. Unverified INC-010 excluded. |
+| Frontend workbench | **Shell built** (`frontend/`, React 18 + Vite 5 + TS, **http://localhost:3000**). Live source cards, failure lab, proof panel from real API reads. Investigation/approval/timeline show an honest pending state and only poll `/api/cases/{id}` once health reports Atlas connected. |
+| Team Atlas access | Three groupmates added to the organizer Sandbox with Project Data Access Read/Write, verified in the Atlas users list. Personal driver credentials/IP access are separate. |
+| Tests | All 23 tests passed against organizer Cluster0 (15 local + 8 real Atlas), including with credentials exported. Offline settings tests are isolated from shell variables (P2 fixed). Strict runtime verification including real semantic retrieval passed. Full worker/custodian crash recovery not yet built/tested. After merging the app lane: **33 offline tests pass** (`uv run pytest -m 'not atlas'`: 15 DB-lane + 18 simulator/idempotency); live Atlas tests not re-run on Harshi's Mac (no credentials there). |
 
 ## 3. Non-negotiable rules (from the brief)
 
@@ -81,24 +43,33 @@ cd backend && uv run pytest    # tests
 - Do not drop/delete anything in Atlas except the synthetic demo records; confirm destructive ops with a human.
 - Priority: crash recovery + exactly-once proof (Phases 1–2) **before** Vector Search / directory adaptation (Phase 3).
 
-## 4. Database-side checklist (for the teammate's Atlas session)
+## 4. Database setup and remaining checks
 
-Target: organizer's **Atlas Sandbox** project/cluster. Verify it is the hackathon Sandbox before writing anything.
+Read `docs/mongodb-setup.md` for resources, modules, verification and migration instructions.
+The user initially authorized SettleFlow 2.0, then found the actual organizer invitation and Sandbox project.
+Organizer org **Agents in Context Toronto** is now confirmed in MCP (`69ef9daf03d2ce35c2657862`).
+Reuse its existing **Cluster0**; do not provision an extra paid cluster.
 
-1. Create a database user for the app with readWrite on database `tradeops` only. Put the SRV URI in `.env` as
-   `MONGODB_URI`, with `MONGODB_DB=tradeops`. Allow the team's IPs in the network access list.
-2. Confirm privileges: insert/read a synthetic test doc in `tradeops.healthcheck`, then delete only that doc.
-3. Once `backend/scripts/setup_atlas.py` exists, run it (idempotent):
-   `cd backend && uv run python scripts/setup_atlas.py`. It must create:
-   - collections `cases` (with `$jsonSchema` validator), `incidents`, `policies`, `workers`
-   - indexes: `cases.caseId` unique; `cases.operation.operationId` unique partial (`$exists: true`); `cases.stage`; `incidents.incidentId` unique
-   - Vector Search index `incident_vector_index` on `incidents` (definition in `architecture.md` §6)
-   - seed `policies` from `fixtures/policies.json`; seed `incidents` from `fixtures/incidents.json` with Voyage
-     embeddings (`voyage-3.5-lite`, `input_type=document`, 1024 dims) of `symptom + " " + verifiedResolution`.
-   If the script doesn't exist yet, the same steps can be done via the MongoDB MCP / Atlas UI using those definitions.
-4. Verify: a `$vectorSearch` for "directory payload moved the account field" returns `INC-004` first.
-5. Verify majority write concern works (`WriteConcern("majority", j=True)` insert succeeds) and note the Atlas tier/version here.
-6. Record results in §2 and §6 of this file: what exists, the tier, any permission blockers.
+Database modules and scripts already exist. Setup creates cases/incidents/policies/workers, strict case
+validation, unique case/partial operation/incident/policy indexes, a stage index and a real vector index.
+It preserves live cases/policies and embeds only the 9 verified incidents when a key exists.
+Runtime `tradeops-app` has readWrite on tradeops only; setup `tradeops-setup` adds dbAdmin on that DB only.
+Both are scoped to the selected cluster. Credentials are only in gitignored `.env` (0600).
+
+Confirmed: local `.env` targets organizer Cluster0 and setup plus runtime verification succeeded there.
+
+Voyage is now verified: local .env key loaded successfully, 9 real document embeddings stored, and
+`verify_atlas.py --require-memory` passed. The query “directory payload moved the account field” returns
+INC-004 first (~0.800), then INC-008 and INC-005. Suggested read-only action: GET_DIRECTORY_CONTRACT.
+Use `ReadConcern("local")` only for the $vectorSearch aggregation: Atlas rejects majority for this stage.
+Case and checkpoint reads/writes retain their majority settings. A regression test enforces this boundary.
+
+Remaining application integration:
+1. Wire `CaseStore` and `IncidentMemory` into the API/worker; implement live pre-send checks and
+   independent custodian verification. Retrieval is real, but the worker has not consumed it yet.
+2. On a new machine, provide your own gitignored Voyage/Atlas credentials, run setup and
+   `.venv/bin/python scripts/verify_atlas.py --require-memory`. Reuse stored embeddings when unchanged.
+3. Never present database durability/retrieval checks as the full exactly-once application demonstration.
 
 ## 5. Build order for the application (Phases)
 
@@ -107,18 +78,16 @@ Target: organizer's **Atlas Sandbox** project/cluster. Verify it is the hackatho
    DB file under `backend/simulators/data/`. Custodian PATCH exactly per `architecture.md` §9.
    → `tests/test_idempotency.py` (TestClient, no Mongo): same key+payload → same receipt; different payload → 409;
    known key checked before stale revision; lost-response fault still commits; proof counts.
-2. **Backend core** (`backend/app/`): `config.py` (dotenv), `db.py` (client, `cas_update` transition helper,
-   `ensure_indexes`), `hashing.py` (canonical sha256), `models.py` (stage enum, request bodies),
-   `services/simulator_clients.py` (httpx, typed errors: `Unavailable`, `Timeout`, `HttpError`),
-   `services/directory_adapters.py` (v1, v2; v3 unknown), `services/memory.py` (Voyage REST + `$vectorSearch`,
-   returns `PENDING` with reason when unavailable; `MEMORY_ENABLED=false` for paired off/on run),
-   `services/investigation.py`, `services/approvals.py`, `services/workflow.py` + `verification.py`, `worker.py`,
-   `routes/{cases,demo,health}.py`, `main.py`.
-3. **Tests with Mongo** (`MONGODB_URI` required; use a throwaway db name `tradeops_test_<random>` and drop only it):
-   approval guards, directory contract (v1/v2/v3), happy path, and **crash recovery with real subprocesses**
-   (worker exits 137 → Atlas shows AWAITING_VERIFICATION + same operationId → restart → VERIFIED; receipt count 1,
-   PATCH count 1, revision 1→2).
-4. **`backend/scripts/setup_atlas.py`** (§4).
+2. **Backend core**: `app/config.py`, `db.py`, `schema.py`, `seed.py`, `hashing.py`, `models.py`
+   and `services/memory.py` already exist. Reuse `CaseStore.cas_update` (requires run_id), `persist_intent`,
+   `list_resumable`, `heartbeat`, and `IncidentMemory.retrieve`. Remaining application modules:
+   `services/simulator_clients.py`, `directory_adapters.py`, `investigation.py`, `approvals.py`,
+   `workflow.py`, `verification.py`, `worker.py`, `routes/{cases,demo,health}.py`, `main.py`.
+3. **Application tests with Mongo**: current users are restricted to tradeops. Use unique synthetic records
+   and exact cleanup as in `tests/test_atlas.py`; never drop the database. Still build approval endpoint guards,
+   directory contract tests, happy path and full crash recovery with real worker/simulator subprocesses
+   (worker exits 137 → Atlas AWAITING_VERIFICATION → restart → VERIFIED; one receipt/PATCH/revision increment).
+4. **`backend/scripts/setup_atlas.py` and `verify_atlas.py` already implemented** (§4).
 5. **Frontend** (`frontend/`, React 18 + Vite 5 + TS): components listed in `architecture.md` §5; dark navy,
    teal success, amber/red exceptions; every value from the API; loading/error/manual-review states; keyboard accessible.
 6. **Scripts + README**: `scripts/dev.sh`, `worker.sh`, `kill-worker.sh`, `reset.sh`; runnable instructions.
@@ -129,10 +98,56 @@ Target: organizer's **Atlas Sandbox** project/cluster. Verify it is the hackatho
   (architecture, API contracts, demo script, this file), `CLAUDE.md`, README, `.env.example`, `.gitignore`,
   canonical fixtures. Decisions: no LLM for MVP; Voyage AI embeddings; Atlas set up in a teammate's session;
   no local Docker DB. No application code written yet — next agent starts at §5 step 1.
-- **2026-11-14 — app-lane session 1 (Claude Code, Harshi's Mac, branch `simulators`).** Built the three
-  simulators (own SQLite each, `--factory` apps), custodian idempotency contract + faults + proof, 18 passing
-  tests, API skeleton (health, live sources, demo controls), `scripts/dev.sh`, and the React workbench shell.
-  Verified live: lost-response fault makes a 2 s client time out while the custodian commits exactly once;
-  replay with the same key returns the original receipt; directory v1→v2 switch shows in the UI. Not built:
-  case engine (worker, case routes, investigation, approvals) — waits on the DB lane's `db.py`.
-  `docs/api-contracts.md` updated: operation 404 body shape, directory `AMBIGUOUS_ACTIVE_ACCOUNT`.
+
+- **2026-11-14 — MongoDB setup (Codex).** Read blueprint, master brief, guidance and fixtures. Created
+  authorized development cluster tradeops-sandbox in SettleFlow 2.0, scoped users and this Mac's IP entry.
+  Implemented PyMongo config/models/hashing, atomic transitions with run/version guards, majority+j intent,
+  recovery scans, heartbeat, schema/index setup, safe seeds, real Voyage/Vector Search pending/disabled states,
+  setup and verification CLIs. Seeded 1 case, policy v1, 10 incidents; development vector index READY.
+  Ruff passed; 14 local + 8 real development Atlas tests passed. New subprocess recovered identical operation
+  intent; actual worker/custodian recovery remains unbuilt. User then located organizer Sandbox: confirmed
+  Agents in Context Toronto and project 6af899b4fb07f6aa867aa481, reusing existing Cluster0. Provisioned scoped
+  organizer users/network access; installed collections/validators/indexes/seeds and switched local .env.
+  All 22 tests (14 local + 8 real Atlas) and the runtime verification passed against organizer Cluster0.
+  Organizer cluster IDLE; vector index READY/queryable; rerunning setup preserved canonical NEW case/version 1.
+  Original development cluster retained. Missing Voyage key blocks embeddings/ranking.
+  Updated CLAUDE.md, README, .env.example and docs. Next application work: §5 step 1.
+
+- **2026-11-14 — .env connection recheck (Codex).** Confirmed both current runtime and setup credentials
+  connect to organizer Cluster0/tradeops. Vector index READY/queryable, 1 synthetic case, 0 embeddings,
+  no worker heartbeat. Added explicit MONGODB_TIMEOUT_MS=10000 and MONGODB_VECTOR_INDEX=incident_vector_index
+  to the local .env, matching existing code defaults. Voyage key remains absent; simulator/reviewer tokens
+  remain example placeholders. Broker/directory/custodian health ports are not reachable; those services and
+  the worker are still unbuilt. No credentials printed or committed; .env remains mode 0600 and gitignored.
+
+- **2026-11-14 — Voyage activation and live retrieval (Codex).** After the user saved their key in the
+  root .env, the app loaded it and Voyage generated all 9 verified incident vectors (voyage-3.5-lite,
+  document input, 1024 dims). INC-010 remains unembedded. The first real search exposed Atlas error 72:
+  $vectorSearch rejects majority read concern. Fixed only the aggregation's collection options to local;
+  majority case reads/writes remain unchanged. Added a regression test covering read concern and metadata
+  filters. Strict verification passed with a real query embedding: “directory payload moved the account
+  field” returned INC-004 first, score 0.799821, next check GET_DIRECTORY_CONTRACT (then INC-008, INC-005).
+  All 23 tests (15 local + 8 real Atlas) passed; Ruff passed. Updated CLAUDE.md, README and docs. API,
+  worker, directory adaptation and the full custodian recovery demo remain application work. No key printed.
+
+- **2026-11-14 — Team Atlas access (Codex).** Added all three user-specified groupmates to the organizer
+  Sandbox project with Project Data Access Read/Write, after confirmation of the exact recipients and role.
+  Atlas reported three invitations and listed all three with the intended project role. No organization-wide
+  administrator rights, personal database logins, or additional IP entries were created. Updated setup/handoff
+  docs without publishing teammate email addresses in the repository. No application code changed.
+
+- **2026-11-14 — P2 test environment isolation (Codex).** Added tests/conftest.py: offline tests clear
+  application settings from their temporary process environment; atlas-marked tests keep real settings.
+  The existing _env_file=None still disables unit-test dotenv loading. All 15 offline tests passed with
+  deliberately conflicting exported Voyage/model/memory/database settings. All 23 tests then passed with
+  real credentials exported, including 8 live Atlas tests. Ruff/format/whitespace checks passed. Runtime
+  config and the local .env were not changed; this fix affects test reliability, not the demo workflow.
+  P2 review finding resolved. No commit or push performed.
+- **2026-11-14 — merge of `simulators` with `main` (Claude Code, Harshi's Mac).** Took Keerat's version of every
+  conflicting file (config, pyproject, conftest, CLAUDE.md, README, this file). Added to Keerat's `Settings`
+  (additive only): `demo_case_id`, `broker_url`, `directory_url`, `custodian_url`, `sim_admin_token` (SecretStr),
+  `custodian_timeout_seconds`, `worker_poll_seconds`, plus `get_settings()`. pyproject: hatch packages now
+  `app` + `simulators`, pytest `pythonpath = ["."]`, explicit `python-dotenv`. conftest: simulator fixtures appended
+  (they set their own `SIM_ADMIN_TOKEN` because the autouse fixture clears settings env vars). `/api/health` now
+  uses `create_client`/`get_database`, the `workers` heartbeat doc and `IncidentMemory.status()` (cached 30 s).
+  Install with `cd backend && uv sync --extra dev`. Next: case routes + worker using `CaseStore`.

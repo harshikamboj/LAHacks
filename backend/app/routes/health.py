@@ -2,35 +2,101 @@
 
 from __future__ import annotations
 
+import time
+from datetime import datetime, timezone
+from functools import lru_cache
+
 from fastapi import APIRouter
+from pymongo import MongoClient
+from pymongo.errors import PyMongoError
 
 from app.config import get_settings
+from app.db import create_client, get_database
 from app.services import simulator_clients as sims
+from app.services.memory import IncidentMemory
 
 router = APIRouter()
 
+WORKER_ONLINE_SECONDS = 5.0
+MEMORY_STATUS_TTL_SECONDS = 30.0  # listing search indexes is too heavy for a 1 s poll
+_memory_cache: dict = {"at": 0.0, "value": None}
 
-def atlas_status() -> dict:
+
+@lru_cache
+def _client() -> MongoClient:
+    # One pooled client per API process, using the runtime (readWrite-only) credentials.
+    return create_client(get_settings())
+
+
+def atlas_status() -> tuple[dict, object | None]:
     settings = get_settings()
-    if not settings.mongodb_uri:
-        return {"ok": False, "status": "NOT_CONFIGURED", "db": settings.mongodb_db,
-                "error": "MONGODB_URI is not set in .env"}
     try:
-        from app import db  # owned by the DB lane; exposes ping()
-    except ImportError:
-        return {"ok": False, "status": "PENDING", "db": settings.mongodb_db,
-                "error": "app/db.py is not implemented yet"}
+        settings.connection_uri()
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "status": "NOT_CONFIGURED",
+            "db": settings.mongodb_db,
+            "error": str(exc),
+        }, None
     try:
-        db.ping()
-        return {"ok": True, "status": "CONNECTED", "db": settings.mongodb_db, "error": None}
-    except Exception as exc:  # report any driver error rather than crash the health check
-        return {"ok": False, "status": "ERROR", "db": settings.mongodb_db, "error": str(exc)}
+        client = _client()
+        client.admin.command("ping")
+        return {
+            "ok": True,
+            "status": "CONNECTED",
+            "db": settings.mongodb_db,
+            "error": None,
+        }, get_database(client, settings)
+    except PyMongoError as exc:
+        return {
+            "ok": False,
+            "status": "ERROR",
+            "db": settings.mongodb_db,
+            "error": type(exc).__name__,
+        }, None  # never echo driver text: it can contain hosts
+
+
+def worker_status(db) -> dict:
+    if db is None:
+        return {"online": False, "status": "UNKNOWN", "reason": "Atlas not connected"}
+    try:
+        doc = db.workers.find_one({"_id": "workflow-worker"}, {"_id": 0})
+    except PyMongoError:
+        return {"online": False, "status": "UNKNOWN", "reason": "Heartbeat unreadable"}
+    if not doc or not doc.get("heartbeatAt"):
+        return {"online": False, "status": "NEVER_STARTED"}
+    beat = doc["heartbeatAt"]
+    if beat.tzinfo is None:
+        beat = beat.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - beat).total_seconds()
+    return {
+        "online": age <= WORKER_ONLINE_SECONDS,
+        "status": "ONLINE" if age <= WORKER_ONLINE_SECONDS else "OFFLINE",
+        "workerId": doc.get("workerId"),
+        "pid": doc.get("pid"),
+        "heartbeatAt": beat.isoformat(),
+        "ageSeconds": round(age, 1),
+    }
+
+
+def memory_status(db) -> dict:
+    if db is None:
+        return {"vectorSearch": "PENDING", "reason": "ATLAS_NOT_CONNECTED"}
+    now = time.monotonic()
+    if _memory_cache["value"] is None or now - _memory_cache["at"] > MEMORY_STATUS_TTL_SECONDS:
+        _memory_cache["value"] = IncidentMemory(db, get_settings()).status()
+        _memory_cache["at"] = now
+    return _memory_cache["value"]
 
 
 def simulator_status() -> dict:
     out = {}
-    for name, client in (("broker", sims.broker()), ("directory", sims.directory()),
-                         ("custodian", sims.custodian())):
+    for name, client in (
+        ("broker", sims.broker()),
+        ("directory", sims.directory()),
+        ("custodian", sims.custodian()),
+    ):
         try:
             client.health()
             out[name] = {"ok": True, "url": client.base_url}
@@ -41,14 +107,12 @@ def simulator_status() -> dict:
 
 @router.get("/health")
 def health():
-    settings = get_settings()
+    atlas, db = atlas_status()
     return {
         "api": "ok",
-        "atlas": atlas_status(),
+        "atlas": atlas,
         "simulators": simulator_status(),
-        # Worker heartbeat lives in Atlas (workers collection) once the worker is built.
-        "worker": {"online": False, "status": "NOT_IMPLEMENTED"},
-        "memory": {"vectorSearch": "PENDING",
-                   "reason": None if settings.voyage_api_key else "VOYAGE_API_KEY is not set"},
-        "demoMode": settings.demo_mode,
+        "worker": worker_status(db),
+        "memory": memory_status(db),
+        "demoMode": get_settings().demo_mode,
     }

@@ -26,7 +26,9 @@ def error_body(code: str, message: str, details: dict | None = None) -> dict:
 
 
 async def api_error_handler(_: Request, exc: ApiError) -> JSONResponse:
-    return JSONResponse(status_code=exc.status, content=error_body(exc.code, exc.message, exc.details))
+    return JSONResponse(
+        status_code=exc.status, content=error_body(exc.code, exc.message, exc.details)
+    )
 
 
 async def simulator_error_handler(_: Request, exc: SimulatorError) -> JSONResponse:

@@ -6,6 +6,10 @@ const STAGE_TONE: Record<string, Tone> = {
   AWAITING_VERIFICATION: "warn", VERIFIED: "ok", MANUAL_REVIEW: "bad",
 };
 
+const WORKER_LABEL: Record<string, string> = {
+  OFFLINE: "offline", NEVER_STARTED: "not started", UNKNOWN: "unknown (Atlas not connected)",
+};
+
 export function CaseHeader({ health, sources, caseDoc, caseError }: {
   health: Health | null; sources: Sources | null; caseDoc: CaseDoc | null; caseError: string | null;
 }) {
@@ -28,7 +32,7 @@ export function CaseHeader({ health, sources, caseDoc, caseError }: {
         )}
         {health ? (
           worker?.online ? <Pill tone="ok">{worker.workerId ?? "worker"} online</Pill>
-            : <Pill tone="bad">worker {worker?.status === "NOT_IMPLEMENTED" ? "not built yet" : "offline"}</Pill>
+            : <Pill tone="bad">worker {WORKER_LABEL[worker?.status ?? ""] ?? "offline"}</Pill>
         ) : <Pill tone="muted">worker unknown</Pill>}
         {health && (
           <Pill tone={health.atlas.ok ? "ok" : "warn"}>

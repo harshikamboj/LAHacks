@@ -36,8 +36,17 @@ def seed(store: Store) -> None:
         for t in load_fixture("trades.json"):
             store.conn.execute(
                 "INSERT INTO trades VALUES (?,?,?,?,?,?,?,?,?)",
-                (t["tradeId"], t["portfolioId"], t["side"], t["security"], t["quantity"],
-                 t["price"], t["currency"], t["status"], t["executedAt"]),
+                (
+                    t["tradeId"],
+                    t["portfolioId"],
+                    t["side"],
+                    t["security"],
+                    t["quantity"],
+                    t["price"],
+                    t["currency"],
+                    t["status"],
+                    t["executedAt"],
+                ),
             )
         store.conn.execute("COMMIT")
 

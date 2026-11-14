@@ -3,11 +3,14 @@
     "tradeId": "TR-2041",
     "portfolioId": "P-17",
     "side": "BUY",
-    "security": "XYZ",
+    "security": "TTE",
     "quantity": 100,
-    "price": "42.50",
-    "currency": "CAD",
+    "price": "91.20",
+    "currency": "USD",
     "status": "EXECUTED",
-    "executedAt": "2026-11-13T19:42:10Z"
+    "executedAt": "2026-09-14T19:42:10Z",
+    "symbol": "TTE",
+    "cusip": "F92124100",
+    "settlementDate": "2026-09-15"
   }
 ]

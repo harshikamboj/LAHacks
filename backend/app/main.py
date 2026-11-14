@@ -11,8 +11,9 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.auth import router as auth_router
 from app.errors import ApiError, api_error_handler, simulator_error_handler
-from app.routes import demo, health, sources
+from app.routes import cases, demo, health, sources
 from app.services.simulator_clients import SimulatorError
 
 app = FastAPI(
@@ -35,3 +36,5 @@ app.add_exception_handler(SimulatorError, simulator_error_handler)
 app.include_router(health.router, prefix="/api")
 app.include_router(sources.router, prefix="/api")
 app.include_router(demo.router, prefix="/api")
+app.include_router(cases.router, prefix="/api")
+app.include_router(auth_router, prefix="/api")

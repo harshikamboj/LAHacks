@@ -130,6 +130,7 @@ def ensure_indexes(db: Database) -> None:
     db.cases.create_index([("stage", ASCENDING)], name="case_stage")
     db.incidents.create_index([("incidentId", ASCENDING)], unique=True, name="incident_id_unique")
     db.policies.create_index([("policyId", ASCENDING)], unique=True, name="policy_id_unique")
+    db.case_runs.create_index([("caseId", 1), ("runId", 1)], unique=True, name="case_run_unique")
 
 
 def ensure_vector_index(db: Database, name: str) -> dict:

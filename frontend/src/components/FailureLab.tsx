@@ -2,8 +2,8 @@ import { useState } from "react";
 import { api, ApiError, type DemoState } from "../lib/api";
 import { Card, Empty, Pill } from "./ui";
 
-export function FailureLab({ state, error, onChange }: {
-  state: DemoState | null; error: string | null; onChange: () => void;
+export function FailureLab({ state, error, onChange, authenticated, workerOnline }: {
+  authenticated: boolean; workerOnline: boolean; state: DemoState | null; error: string | null; onChange: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -23,7 +23,7 @@ export function FailureLab({ state, error, onChange }: {
   }
 
   function reset() {
-    if (window.confirm("Reset all synthetic demo data in the three simulators?")) {
+    if (window.confirm("Reset the synthetic simulator stores and archive the current demo run? Stop the worker first. Public market data and memory are preserved.")) {
       act("Demo data reset", api.reset);
     }
   }
@@ -33,17 +33,17 @@ export function FailureLab({ state, error, onChange }: {
       {!state ? <Empty>{error ?? "Loading demo controls…"}</Empty> : (
         <div className="lab">
           <label className="toggle">
-            <input type="checkbox" checked={state.faults.lostResponse} disabled={busy}
+            <input type="checkbox" checked={state.faults.lostResponse} disabled={busy || !authenticated}
               onChange={(e) => act("Lost-response fault updated", () => api.setFaults({ lostResponse: e.target.checked }))} />
             Lose the custodian's next reply <span className="hint">(commits, then drops the response once)</span>
           </label>
           <label className="toggle">
-            <input type="checkbox" checked={state.faults.operationsUnavailable} disabled={busy}
+            <input type="checkbox" checked={state.faults.operationsUnavailable} disabled={busy || !authenticated}
               onChange={(e) => act("Operation lookup fault updated", () => api.setFaults({ operationsUnavailable: e.target.checked }))} />
             Custodian operation lookup unavailable <span className="hint">(503, not absence)</span>
           </label>
           <label className="toggle">
-            <input type="checkbox" checked={!!state.crashWorkerOnUnknown} disabled={busy || state.crashWorkerOnUnknown === null}
+            <input type="checkbox" checked={!!state.crashWorkerOnUnknown} disabled={busy || !authenticated || state.crashWorkerOnUnknown === null}
               onChange={(e) => act("Crash flag updated", () => api.setFaults({ crashWorkerOnUnknown: e.target.checked }))} />
             Crash the worker on an unknown outcome
             <span className="hint">{state.crashWorkerOnUnknown === null ? "(available once the worker exists)" : "(real process exit)"}</span>
@@ -51,14 +51,26 @@ export function FailureLab({ state, error, onChange }: {
           <div className="segmented" role="group" aria-label="Directory contract version">
             <span>Directory contract</span>
             {([1, 2, 3] as const).map((v) => (
-              <button key={v} disabled={busy} aria-pressed={state.directoryContractVersion === v}
+              <button key={v} disabled={busy || !authenticated} aria-pressed={state.directoryContractVersion === v}
                 className={state.directoryContractVersion === v ? "on" : ""}
                 onClick={() => act(`Directory switched to v${v}`, () => api.setDirectoryVersion(v))}>
                 v{v}{v === 3 ? " (unknown)" : ""}
               </button>
             ))}
           </div>
-          <button className="danger" disabled={busy} onClick={reset}>Reset demo</button>
+          <label className="toggle"><input type="checkbox" checked={state.pauseDirectoryRead}
+            disabled={busy || !authenticated} onChange={e => act("Directory pause updated", () => api.setFaults({pauseDirectoryRead: e.target.checked}))} />
+            Pause before first directory read</label>
+          {state.directoryPaused && <div className="pause-note" role="status">
+            Investigation paused before the directory read. Switch to v2, then continue.
+            <button className="primary" disabled={busy || !authenticated}
+              onClick={() => act("Investigation resumed", () => api.setFaults({pauseDirectoryRead: false}))}>Continue directory read</button>
+          </div>}
+          <label className="toggle"><input type="checkbox" checked={state.crashBeforeSend}
+            disabled={busy || !authenticated} onChange={e => act("Pre-send crash updated", () => api.setFaults({crashBeforeSend: e.target.checked}))} />
+            Crash after checkpoint, before PATCH (alternative test)</label>
+          <button className="danger" disabled={busy || !authenticated || workerOnline} onClick={reset}>Reset demo</button>
+          <p className="hint">Reset requires the worker stopped. Restart the worker from its terminal after a crash.</p>
           {message && <p className="lab-msg" role="status">{message}</p>}
         </div>
       )}

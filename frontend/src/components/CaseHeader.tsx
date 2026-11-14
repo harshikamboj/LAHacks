@@ -3,7 +3,7 @@ import { Pill, type Tone } from "./ui";
 
 const STAGE_TONE: Record<string, Tone> = {
   NEW: "muted", INVESTIGATING: "info", AWAITING_APPROVAL: "info", APPROVED: "info",
-  AWAITING_VERIFICATION: "warn", VERIFIED: "ok", MANUAL_REVIEW: "bad",
+  AWAITING_VERIFICATION: "warn", VERIFIED: "ok", MANUAL_REVIEW: "bad", DENIED: "bad", NO_ACTION: "muted",
 };
 
 const WORKER_LABEL: Record<string, string> = {
@@ -18,7 +18,7 @@ export function CaseHeader({ health, sources, caseDoc, caseError }: {
   return (
     <header className="topbar">
       <div>
-        <h1>TradeOps Reconciler <span className="tagline">Finish the job</span></h1>
+        <h1>ProofStep <span className="tagline">TradeOps Reconciler · Finish the Job</span></h1>
         <p className="sub mono">
           Case SI-2041
           {trade && ` · ${trade.tradeId} · ${trade.portfolioId} · ${trade.side} ${trade.quantity} ${trade.security} @ ${trade.currency} ${trade.price}`}

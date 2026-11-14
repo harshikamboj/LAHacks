@@ -11,7 +11,7 @@ trap cleanup EXIT INT TERM
 
 start() { # name port target
   echo "Starting $1 on :$2"
-  uv run uvicorn "$3" --port "$2" --log-level warning "${@:4}" &
+  .venv/bin/python -m uvicorn "$3" --host 127.0.0.1 --port "$2" --log-level warning "${@:4}" &
   pids+=($!)
 }
 
@@ -20,5 +20,9 @@ start directory 8102 simulators.directory:create_app --factory
 start custodian 8103 simulators.custodian:create_app --factory
 start api       8000 app.main:app
 
+(cd "$ROOT/frontend" && npm run dev -- --host 127.0.0.1 --strictPort) &
+pids+=($!)
+
 echo "API: http://127.0.0.1:8000/docs   Health: http://127.0.0.1:8000/api/health"
+echo "ProofStep Operations Console: http://localhost:3000"
 wait

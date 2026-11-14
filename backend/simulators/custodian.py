@@ -27,6 +27,7 @@ from simulators.common import (
     Store,
     canonical_hash,
     data_dir,
+    ensure_columns,
     error,
     load_fixture,
     require_admin,
@@ -91,8 +92,9 @@ CREATE TABLE IF NOT EXISTS faults (
 
 class AmendBody(BaseModel):
     expectedRevision: int
-    newAccount: str
-    operationId: str
+    newAccount: str | None = None
+    operationId: str | None = None
+    accountId: str | None = None
 
 
 class FaultsBody(BaseModel):
@@ -116,7 +118,7 @@ def seed(store: Store) -> None:
             c.execute(f"DELETE FROM {table}")
         for i in load_fixture("instructions.json"):
             c.execute(
-                "INSERT INTO instructions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO instructions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     i["instructionId"],
                     i["tradeId"],
@@ -131,6 +133,8 @@ def seed(store: Store) -> None:
                     i["rejectionNote"],
                     None,
                     now,
+                    i["cusip"],
+                    i["settlementDate"],
                 ),
             )
             c.execute(
@@ -165,6 +169,9 @@ def _instruction_json(row) -> dict:
         "latestOperationId": row["latest_operation_id"],
         "updatedAt": row["updated_at"],
         "source": SOURCE,
+        "cusip": row["cusip"],
+        "symbol": row["security"],
+        "settlementDate": row["settlement_date"],
     }
 
 
@@ -178,6 +185,10 @@ def _receipt_json(row) -> dict:
         "account": row["account"],
         "status": row["status"],
         "committedAt": row["created_at"],
+        "payloadHash": row["payload_hash"],
+        "accountId": row["account"],
+        "revision": row["result_revision"],
+        "appliedAt": row["created_at"],
         "source": SOURCE,
     }
 
@@ -185,6 +196,7 @@ def _receipt_json(row) -> dict:
 def create_app(db_path: Path | None = None) -> FastAPI:
     store = Store(db_path or data_dir() / "custodian.db")
     store.script(SCHEMA)
+    ensure_columns(store, "instructions", ("cusip", "settlement_date"))
     if store.query_one("SELECT COUNT(*) AS n FROM instructions")["n"] == 0:
         seed(store)
 
@@ -226,22 +238,26 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         if not idempotency_key:
             log_request(instruction_id, None, "REJECTED_MISSING_KEY")
             return error(400, "MISSING_IDEMPOTENCY_KEY", "Idempotency-Key header is required")
-        if idempotency_key != body.operationId:
+        if body.operationId and idempotency_key != body.operationId:
             log_request(instruction_id, idempotency_key, "REJECTED_KEY_MISMATCH")
             return error(
                 400, "KEY_OPERATION_MISMATCH", "Idempotency-Key must equal body.operationId"
             )
-        if not ACCOUNT_RE.match(body.newAccount):
+        account = body.accountId or body.newAccount
+        if body.accountId and body.newAccount and body.accountId != body.newAccount:
+            return error(400, "CONFLICTING_ACCOUNT_FIELDS", "Account fields disagree")
+        if not account or not ACCOUNT_RE.fullmatch(account):
             log_request(instruction_id, idempotency_key, "REJECTED_INVALID_ACCOUNT")
             return error(
                 400, "INVALID_ACCOUNT", f"{body.newAccount!r} is not a SAFE-<digits> account"
             )
 
+        body.newAccount = account
+        body.operationId = idempotency_key
         payload = {
             "instructionId": instruction_id,
             "expectedRevision": body.expectedRevision,
-            "newAccount": body.newAccount,
-            "operationId": body.operationId,
+            "accountId": body.newAccount,
         }
         payload_hash = canonical_hash(payload)
         drop_response = False
@@ -460,4 +476,9 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         seed(store)
         return {"reset": True}
 
+    app.add_api_route("/custodian/instructions/{instruction_id}", get_instruction, methods=["GET"])
+    app.add_api_route(
+        "/custodian/instructions/{instruction_id}", amend_instruction, methods=["PATCH"]
+    )
+    app.add_api_route("/custodian/operations/{operation_id}", get_operation, methods=["GET"])
     return app

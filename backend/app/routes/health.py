@@ -61,7 +61,7 @@ def worker_status(db) -> dict:
     if db is None:
         return {"online": False, "status": "UNKNOWN", "reason": "Atlas not connected"}
     try:
-        doc = db.workers.find_one({"_id": "workflow-worker"}, {"_id": 0})
+        doc = db.workers.find_one({"_id": get_settings().worker_record_id}, {"_id": 0})
     except PyMongoError:
         return {"online": False, "status": "UNKNOWN", "reason": "Heartbeat unreadable"}
     if not doc or not doc.get("heartbeatAt"):
@@ -70,9 +70,10 @@ def worker_status(db) -> dict:
     if beat.tzinfo is None:
         beat = beat.replace(tzinfo=timezone.utc)
     age = (datetime.now(timezone.utc) - beat).total_seconds()
+    online = age <= WORKER_ONLINE_SECONDS and not doc.get("stoppedAt")
     return {
-        "online": age <= WORKER_ONLINE_SECONDS,
-        "status": "ONLINE" if age <= WORKER_ONLINE_SECONDS else "OFFLINE",
+        "online": bool(online),
+        "status": "ONLINE" if online else "OFFLINE",
         "workerId": doc.get("workerId"),
         "pid": doc.get("pid"),
         "heartbeatAt": beat.isoformat(),

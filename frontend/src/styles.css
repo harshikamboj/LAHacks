@@ -119,3 +119,15 @@ button.danger { justify-self: start; color: var(--red); border-color: rgba(248, 
 .banner { padding: 10px 14px; border-radius: var(--radius); margin-bottom: 14px; }
 .banner.bad { background: var(--red-bg); color: var(--red); border: 1px solid rgba(248, 113, 113, 0.35); }
 .foot { margin-top: 20px; color: var(--text-3); font-size: 12px; text-align: center; }
+
+.reviewer-bar { display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:12px 0 18px; color:var(--text-2); }
+.reviewer-bar label { display:flex; align-items:center; gap:8px; }
+input[type=password] { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:7px; }
+button.primary { color:var(--bg); background:var(--teal); border-color:var(--teal); font-weight:600; }
+.actions { display:flex; gap:8px; margin:12px 0; flex-wrap:wrap; }
+.market-context { border-color:#37577a; background:linear-gradient(110deg,#10263a,var(--panel)); }
+.market-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.scope-note { color:var(--text-2); font-size:12px; margin-bottom:0; }
+.pause-note, .pending-proof { color:var(--amber); border-left:2px solid var(--amber); padding-left:10px; }
+.pause-note button { display:block; margin-top:8px; }
+@media(max-width:600px) { .market-grid { grid-template-columns:1fr; } }

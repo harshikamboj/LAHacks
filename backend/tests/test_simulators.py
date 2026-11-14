@@ -7,12 +7,13 @@ def test_broker_seeded_trade(broker):
     t = broker.get("/trades/TR-2041").json()
     assert (t["side"], t["security"], t["quantity"], t["price"], t["currency"]) == (
         "BUY",
-        "XYZ",
+        "TTE",
         100,
-        "42.50",
-        "CAD",
+        "91.20",
+        "USD",
     )
     assert (t["portfolioId"], t["status"]) == ("P-17", "EXECUTED")
+    assert (t["cusip"], t["settlementDate"]) == ("F92124100", "2026-09-15")
     assert broker.get("/trades/TR-9999").status_code == 404
 
 

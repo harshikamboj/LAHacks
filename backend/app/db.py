@@ -14,12 +14,19 @@ from app.models import CaseDocument, Proposal, Stage
 
 TRANSITIONS = {
     Stage.NEW: {Stage.INVESTIGATING},
-    Stage.INVESTIGATING: {Stage.AWAITING_APPROVAL, Stage.MANUAL_REVIEW},
-    Stage.AWAITING_APPROVAL: {Stage.APPROVED, Stage.INVESTIGATING, Stage.MANUAL_REVIEW},
+    Stage.INVESTIGATING: {Stage.AWAITING_APPROVAL, Stage.MANUAL_REVIEW, Stage.NO_ACTION},
+    Stage.AWAITING_APPROVAL: {
+        Stage.APPROVED,
+        Stage.DENIED,
+        Stage.INVESTIGATING,
+        Stage.MANUAL_REVIEW,
+    },
     Stage.APPROVED: {Stage.INVESTIGATING, Stage.AWAITING_VERIFICATION, Stage.MANUAL_REVIEW},
     Stage.AWAITING_VERIFICATION: {Stage.VERIFIED, Stage.MANUAL_REVIEW},
     Stage.VERIFIED: set(),
     Stage.MANUAL_REVIEW: set(),
+    Stage.DENIED: set(),
+    Stage.NO_ACTION: set(),
 }
 
 
@@ -155,7 +162,8 @@ class CaseStore:
         The worker must reuse the returned operation and payload verbatim on recovery.
         """
         proposal = Proposal.model_validate(case["proposal"]).model_dump()
-        digest = proposal_hash(proposal)
+        # Preserve hashes of older proposals that predate the explicit mappingRevision field.
+        digest = proposal_hash(case["proposal"])
         approval = case.get("approval", {})
         policy = self.db.policies.find_one({"policyId": "settlement-amendment", "synthetic": True})
         scope = ("caseId", "runId", "tradeId", "portfolioId")
@@ -192,6 +200,18 @@ class CaseStore:
             "payload": payload,
             "attemptCount": 1,
             "maxAttempts": policy["maxAttempts"],
+            "retryCount": 0,
+            "requestBody": {
+                "expectedRevision": proposal["expectedRevision"],
+                "accountId": proposal["newAccount"],
+            },
+            "payloadHash": proposal_hash(
+                {
+                    "instructionId": proposal["instructionId"],
+                    "expectedRevision": proposal["expectedRevision"],
+                    "accountId": proposal["newAccount"],
+                }
+            ),
         }
         checkpoint = {
             "stage": Stage.AWAITING_VERIFICATION.value,

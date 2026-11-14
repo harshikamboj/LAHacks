@@ -20,6 +20,7 @@ export function SourceCards({ sources, error }: { sources: Sources | null; error
         {t ? (
           <dl>
             <Field label="Trade">{t.tradeId}</Field>
+            <Field label="CUSIP / date">{t.cusip} · {t.settlementDate}</Field>
             <Field label="Order">{t.side} {t.quantity} {t.security} @ {t.currency} {t.price}</Field>
             <Field label="Status"><Pill tone={t.status === "EXECUTED" ? "ok" : "warn"}>{t.status}</Pill></Field>
           </dl>
